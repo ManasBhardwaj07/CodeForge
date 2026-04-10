@@ -7,6 +7,7 @@ This repository is developed phase by phase. The current implementation includes
 - Phase 1: Project foundation
 - Phase 2: Core relational data model with migrations, seed data, and QA checks
 - Phase 3: JWT authentication, protected routes, and submission entry API
+- Phase 4: BullMQ queue pipeline with independent worker, lifecycle transitions, and QA
 
 ## Core Goal
 
@@ -25,8 +26,9 @@ Build a defendable end-to-end system with this mandatory flow:
 - TypeScript (strict mode)
 - PostgreSQL
 - Prisma ORM
-- Redis (BullMQ integration planned in next phase)
-- Docker (execution isolation planned in upcoming phases)
+- Redis + BullMQ (async submission queue)
+- Dedicated Node worker process for queue execution
+- Docker (execution isolation planned for Phase 5)
 
 ## Project Structure
 
@@ -35,6 +37,7 @@ src/
 	app/           # App Router pages and API routes
 	lib/           # Infrastructure clients (env, prisma, redis)
 	services/      # Business/domain logic
+	worker/        # Queue worker process (BullMQ consumer)
 	types/         # Shared TypeScript types
 
 prisma/
@@ -43,6 +46,7 @@ prisma/
 	seed.ts
 	phase2-qa.ts
 	phase3-qa.ts
+	phase4-qa.ts
 ```
 
 ## Current Data Model (Phase 2)
@@ -100,6 +104,7 @@ npm run db:seed
 ```bash
 npm run qa:phase2
 npm run qa:phase3
+npm run qa:phase4
 ```
 
 ### 6. Start app
@@ -124,6 +129,8 @@ Health endpoint:
 - `npm run db:seed` - seed core data
 - `npm run qa:phase2` - phase 2 acceptance QA checks
 - `npm run qa:phase3` - phase 3 acceptance QA checks
+- `npm run qa:phase4` - phase 4 queue + worker acceptance QA checks
+- `npm run worker` - start queue worker as separate process
 
 ## QA Coverage
 
@@ -146,6 +153,15 @@ Health endpoint:
 - Submission persistence with status `QUEUED`
 - Standardized API error response format: `{ error, code }`
 
+### Phase 4 QA validates:
+
+- Worker starts in a separate process
+- Submit API remains non-blocking while work executes asynchronously
+- Queue job is created and visible by submission id
+- Submission lifecycle transitions: `QUEUED -> RUNNING -> COMPLETED`
+- Worker processing evidence (logs or transition fallback proof)
+- Queue retry policy and backoff behavior through configured BullMQ defaults
+
 ## Security and Repository Hygiene
 
 - `.env` is ignored by git
@@ -156,7 +172,6 @@ Health endpoint:
 
 Planned upcoming phases:
 
-- Phase 4: BullMQ queue integration
 - Phase 5: Docker-based code execution engine
 - Phase 6+: Evaluation, lifecycle tracking, realtime updates, hardening, deployment
 
@@ -172,7 +187,16 @@ Submission behavior in Phase 3:
 
 - Auth required
 - Stores submission with status `QUEUED`
-- Does not execute code yet (execution starts in later phases)
+- In current system (Phase 4), submissions are queued and consumed asynchronously by the worker
+
+## Phase 4 Runtime Flow
+
+1. `POST /api/submit` authenticates and validates payload
+2. Service creates a `Submission` row with status `QUEUED`
+3. Service enqueues BullMQ job with deterministic job id
+4. Worker picks job and atomically flips `QUEUED -> RUNNING`
+5. Worker completes and atomically sets `RUNNING -> COMPLETED`
+6. Failure paths set `FAILED` with `failedAt`; stale `RUNNING` records are recovered by timeout policy
 
 ## Development Policy
 

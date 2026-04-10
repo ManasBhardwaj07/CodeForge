@@ -1,5 +1,6 @@
 import { ProgrammingLanguage, SubmissionStatus } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
+import { submissionQueue } from "@/lib/queue";
 
 const allowedLanguages = new Set<ProgrammingLanguage>([
   ProgrammingLanguage.CPP,
@@ -88,6 +89,9 @@ export async function createQueuedSubmission(input: CreateSubmissionInput) {
       code: input.code,
       language: parsedLanguage,
       status: SubmissionStatus.QUEUED,
+      startedAt: null,
+      completedAt: null,
+      failedAt: null,
     },
     select: {
       id: true,
@@ -99,5 +103,32 @@ export async function createQueuedSubmission(input: CreateSubmissionInput) {
     },
   });
 
-  return submission;
+  try {
+    const job = await submissionQueue.add("execute", {
+      submissionId: submission.id,
+    }, {
+      jobId: `submission-${submission.id}`,
+    });
+
+    return {
+      ...submission,
+      queueJobId: job.id,
+    };
+  } catch {
+    await prisma.submission.update({
+      where: {
+        id: submission.id,
+      },
+      data: {
+        status: SubmissionStatus.FAILED,
+        failedAt: new Date(),
+      },
+    });
+
+    throw new SubmissionServiceError(
+      "Submission queue is unavailable",
+      503,
+      "QUEUE_UNAVAILABLE",
+    );
+  }
 }

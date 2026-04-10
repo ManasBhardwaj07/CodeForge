@@ -78,6 +78,9 @@ model Submission {
   language         ProgrammingLanguage
   code             String            @db.Text
   status           SubmissionStatus  @default(QUEUED)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  failedAt         DateTime?
   executionResults ExecutionResult[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
