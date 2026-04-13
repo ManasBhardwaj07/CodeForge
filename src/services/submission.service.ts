@@ -1,6 +1,6 @@
 import { ProgrammingLanguage, SubmissionStatus } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
-import { submissionQueue } from "@/lib/queue";
+import { getSubmissionQueue } from "@/lib/queue";
 
 const allowedLanguages = new Set<ProgrammingLanguage>([
   ProgrammingLanguage.CPP,
@@ -104,7 +104,7 @@ export async function createQueuedSubmission(input: CreateSubmissionInput) {
   });
 
   try {
-    const job = await submissionQueue.add("execute", {
+    const job = await getSubmissionQueue().add("execute", {
       submissionId: submission.id,
     }, {
       jobId: `submission-${submission.id}`,

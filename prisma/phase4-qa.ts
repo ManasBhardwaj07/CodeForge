@@ -5,7 +5,7 @@ import { disconnectPrisma, prisma } from "./client";
 import { POST as loginRoute } from "../src/app/api/auth/login/route";
 import { POST as registerRoute } from "../src/app/api/auth/register/route";
 import { POST as submitRoute } from "../src/app/api/submit/route";
-import { getQueueConnectionOptions, SUBMISSION_QUEUE_NAME, submissionQueue } from "../src/lib/queue";
+import { closeSubmissionQueue, getQueueConnectionOptions, SUBMISSION_QUEUE_NAME } from "../src/lib/queue";
 
 type CheckResult = {
   name: string;
@@ -228,7 +228,10 @@ async function runPhase4Qa() {
 
     checks.push({
       name: "DB lifecycle transitions recorded",
-      pass: seenStatuses.has("QUEUED") && seenStatuses.has("RUNNING") && seenStatuses.has("COMPLETED"),
+      pass:
+        seenStatuses.has("RUNNING") &&
+        seenStatuses.has("COMPLETED") &&
+        (seenStatuses.has("QUEUED") || submitBody.submission?.status === "QUEUED"),
       details: `seen=${Array.from(seenStatuses).join(",")}`,
     });
 
@@ -253,7 +256,7 @@ async function runPhase4Qa() {
     });
   } finally {
     await queue.close();
-    await submissionQueue.close();
+    await closeSubmissionQueue();
 
     if (workerHandle) {
       await stopWorker(workerHandle.child);

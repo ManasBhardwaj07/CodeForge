@@ -2,9 +2,15 @@ import { Worker } from "bullmq";
 import { SubmissionStatus } from "../../generated/prisma";
 import { getQueueConnectionOptions, SUBMISSION_QUEUE_NAME, type SubmissionJobData } from "../lib/queue";
 import { prisma } from "../lib/prisma";
+import {
+  DEFAULT_GLOBAL_TIMEOUT_MS,
+  DEFAULT_PER_TEST_TIMEOUT_MS,
+  executeInSandbox,
+} from "../services/execution.service";
 
 const STALE_RUNNING_TIMEOUT_MS = 5 * 60 * 1000;
 const STALE_RECOVERY_INTERVAL_MS = 60 * 1000;
+const WORKER_PER_TEST_TIMEOUT_MS = Math.max(DEFAULT_PER_TEST_TIMEOUT_MS, 5000);
 
 async function recoverStaleRunningSubmissions() {
   const cutoff = new Date(Date.now() - STALE_RUNNING_TIMEOUT_MS);
@@ -24,6 +30,194 @@ async function recoverStaleRunningSubmissions() {
 
   if (recovered.count > 0) {
     console.warn(`Recovered stale RUNNING submissions: ${recovered.count}`);
+  }
+}
+
+function normalizeOutput(value: string): string {
+  return value.replace(/\r\n/g, "\n").trimEnd();
+}
+
+function formatErrorForPersistence(errorType: string | null, stderr: string) {
+  if (!errorType) {
+    return stderr.length > 0 ? stderr : null;
+  }
+
+  if (stderr.length === 0) {
+    return `[${errorType}]`;
+  }
+
+  return `[${errorType}] ${stderr}`;
+}
+
+async function createExecutionResultRecord(params: {
+  submissionId: string;
+  testCaseId: string;
+  inputSnapshot: string;
+  expectedOutputSnapshot: string;
+  actualOutput: string;
+  stderr: string | null;
+  exitCode: number | null;
+  executionTimeMs: number | null;
+  passed: boolean;
+}) {
+  await prisma.executionResult.create({
+    data: {
+      submissionId: params.submissionId,
+      testCaseId: params.testCaseId,
+      inputSnapshot: params.inputSnapshot,
+      expectedOutputSnapshot: params.expectedOutputSnapshot,
+      actualOutput: params.actualOutput,
+      stderr: params.stderr,
+      exitCode: params.exitCode,
+      executionTimeMs: params.executionTimeMs,
+      passed: params.passed,
+    },
+  });
+}
+
+async function executeSubmission(submissionId: string) {
+  const submission = await prisma.submission.findUnique({
+    where: {
+      id: submissionId,
+    },
+    select: {
+      id: true,
+      language: true,
+      code: true,
+      problem: {
+        select: {
+          testCases: {
+            orderBy: {
+              orderIndex: "asc",
+            },
+            select: {
+              id: true,
+              input: true,
+              expectedOutput: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!submission) {
+    throw new Error(`Submission ${submissionId} not found`);
+  }
+
+  const testCases = submission.problem.testCases;
+
+  if (testCases.length === 0) {
+    throw new Error(`Problem has no test cases for submission ${submissionId}`);
+  }
+
+  await prisma.executionResult.deleteMany({
+    where: {
+      submissionId,
+    },
+  });
+
+  const submissionDeadline = Date.now() + DEFAULT_GLOBAL_TIMEOUT_MS;
+  let infrastructureFailure: string | null = null;
+
+  for (let index = 0; index < testCases.length; index += 1) {
+    const testCase = testCases[index];
+
+    if (!testCase) {
+      continue;
+    }
+
+    const remainingMs = submissionDeadline - Date.now();
+
+    if (remainingMs <= 0) {
+      for (let pendingIndex = index; pendingIndex < testCases.length; pendingIndex += 1) {
+        const pendingCase = testCases[pendingIndex];
+
+        if (!pendingCase) {
+          continue;
+        }
+
+        await createExecutionResultRecord({
+          submissionId,
+          testCaseId: pendingCase.id,
+          inputSnapshot: pendingCase.input,
+          expectedOutputSnapshot: pendingCase.expectedOutput,
+          actualOutput: "",
+          stderr: `Global submission timeout exceeded (${DEFAULT_GLOBAL_TIMEOUT_MS}ms)`,
+          exitCode: null,
+          executionTimeMs: null,
+          passed: false,
+        });
+      }
+
+      break;
+    }
+
+    try {
+      const outcome = await executeInSandbox({
+        language: submission.language,
+        code: submission.code,
+        input: testCase.input,
+        policy: {
+          perTestTimeoutMs: WORKER_PER_TEST_TIMEOUT_MS,
+          globalTimeoutMs: remainingMs,
+        },
+        context: {
+          submissionId,
+          testCaseId: testCase.id,
+        },
+      });
+
+      const passed =
+        outcome.success && !outcome.timedOut &&
+        normalizeOutput(outcome.stdout) === normalizeOutput(testCase.expectedOutput);
+
+      console.info(
+        [
+          "Execution metadata",
+          `submissionId=${submissionId}`,
+          `testCaseId=${testCase.id}`,
+          `errorType=${outcome.errorType ?? "NONE"}`,
+          `durationMs=${outcome.executionTimeMs}`,
+          `containerId=${outcome.metadata.containerId ?? "n/a"}`,
+          `compileContainerId=${outcome.metadata.compileContainerId ?? "n/a"}`,
+          `runContainerId=${outcome.metadata.runContainerId ?? "n/a"}`,
+          `outputTruncated=${outcome.metadata.outputTruncated}`,
+        ].join(" | "),
+      );
+
+      await createExecutionResultRecord({
+        submissionId,
+        testCaseId: testCase.id,
+        inputSnapshot: testCase.input,
+        expectedOutputSnapshot: testCase.expectedOutput,
+        actualOutput: outcome.stdout,
+        stderr: formatErrorForPersistence(outcome.errorType, outcome.stderr),
+        exitCode: outcome.exitCode,
+        executionTimeMs: outcome.executionTimeMs,
+        passed,
+      });
+    } catch (error) {
+      infrastructureFailure = error instanceof Error ? error.message : "Unknown execution infrastructure failure";
+
+      await createExecutionResultRecord({
+        submissionId,
+        testCaseId: testCase.id,
+        inputSnapshot: testCase.input,
+        expectedOutputSnapshot: testCase.expectedOutput,
+        actualOutput: "",
+        stderr: `[INFRA_ERROR] ${infrastructureFailure}`,
+        exitCode: null,
+        executionTimeMs: null,
+        passed: false,
+      });
+
+      break;
+    }
+  }
+
+  if (infrastructureFailure) {
+    throw new Error(infrastructureFailure);
   }
 }
 
@@ -51,8 +245,7 @@ const worker = new Worker<SubmissionJobData>(
       throw new Error(`Submission ${submissionId} is not QUEUED or does not exist`);
     }
 
-    // Placeholder execution delay for Phase 4; real execution engine lands in Phase 5.
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await executeSubmission(submissionId);
 
     const completed = await prisma.submission.updateMany({
       where: {

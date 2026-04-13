@@ -4,7 +4,7 @@ import { POST as registerRoute } from "../src/app/api/auth/register/route";
 import { GET as problemsRoute } from "../src/app/api/problems/route";
 import { GET as protectedRoute } from "../src/app/api/protected/route";
 import { POST as submitRoute } from "../src/app/api/submit/route";
-import { submissionQueue } from "../src/lib/queue";
+import { closeSubmissionQueue } from "../src/lib/queue";
 
 type CheckResult = {
   name: string;
@@ -329,6 +329,6 @@ runPhase3Qa()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await submissionQueue.close();
+    await closeSubmissionQueue();
     await disconnectPrisma();
   });

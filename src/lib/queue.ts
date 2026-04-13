@@ -3,6 +3,10 @@ import { env } from "@/lib/env";
 
 export const SUBMISSION_QUEUE_NAME = "submission-queue";
 
+export type SubmissionJobData = {
+  submissionId: string;
+};
+
 const queueConnection = {
   host: env.redisHost,
   port: env.redisPort,
@@ -10,12 +14,11 @@ const queueConnection = {
 };
 
 const globalForQueue = globalThis as unknown as {
-  submissionQueue: Queue | undefined;
+  submissionQueue: Queue<SubmissionJobData> | undefined;
 };
 
-export const submissionQueue =
-  globalForQueue.submissionQueue ??
-  new Queue(SUBMISSION_QUEUE_NAME, {
+function createSubmissionQueue() {
+  return new Queue<SubmissionJobData>(SUBMISSION_QUEUE_NAME, {
     connection: queueConnection,
     defaultJobOptions: {
       removeOnComplete: false,
@@ -27,15 +30,25 @@ export const submissionQueue =
       },
     },
   });
+}
 
-if (process.env.NODE_ENV !== "production") {
-  globalForQueue.submissionQueue = submissionQueue;
+export function getSubmissionQueue() {
+  if (!globalForQueue.submissionQueue) {
+    globalForQueue.submissionQueue = createSubmissionQueue();
+  }
+
+  return globalForQueue.submissionQueue;
+}
+
+export async function closeSubmissionQueue() {
+  if (!globalForQueue.submissionQueue) {
+    return;
+  }
+
+  await globalForQueue.submissionQueue.close();
+  globalForQueue.submissionQueue = undefined;
 }
 
 export function getQueueConnectionOptions() {
   return queueConnection;
 }
-
-export type SubmissionJobData = {
-  submissionId: string;
-};
