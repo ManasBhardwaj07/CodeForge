@@ -8,7 +8,8 @@ export type Submission = {
 };
 
 export function SubmissionTable({ submissions }: { submissions: Submission[] }) {
-  if (!submissions || submissions.length === 0) {
+  const safeSubmissions = Array.isArray(submissions) ? submissions : [];
+  if (safeSubmissions.length === 0) {
     return <div className="text-gray-500">No submissions found.</div>;
   }
   return (
@@ -21,7 +22,7 @@ export function SubmissionTable({ submissions }: { submissions: Submission[] }) 
         </tr>
       </thead>
       <tbody>
-        {submissions.map((sub) => (
+        {safeSubmissions.map((sub) => (
           <tr key={sub.id} className="border-t">
             <td className="p-2">{sub.problem.title}</td>
             <td className="p-2">{sub.verdict}</td>

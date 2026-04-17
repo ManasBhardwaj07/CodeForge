@@ -1,6 +1,6 @@
 import { Worker } from "bullmq";
-import { SubmissionStatus } from "../../generated/prisma";
-import { getQueueConnectionOptions, SUBMISSION_QUEUE_NAME, type SubmissionJobData } from "../lib/queue";
+import { SubmissionStatus } from "../../generated/prisma/index.js";
+import { getQueueConnectionOptions, SUBMISSION_QUEUE_NAME, type SubmissionJobData } from "../lib/queue.js";
 import { prisma } from "../lib/prisma";
 import {
   DEFAULT_GLOBAL_TIMEOUT_MS,

@@ -1,3 +1,4 @@
+import "dotenv/config";
 function getEnvVar(name: "DATABASE_URL" | "REDIS_HOST" | "REDIS_PORT" | "JWT_SECRET"): string {
   const value = process.env[name];
 

@@ -14,7 +14,15 @@ export default function ProblemsPage() {
       try {
         const res = await fetch("/api/problems", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to fetch problems");
-        setProblems(await res.json());
+        const data = await res.json();
+        // Defensive: handle both array and {problems: array}
+        if (Array.isArray(data)) {
+          setProblems(data);
+        } else if (Array.isArray(data.problems)) {
+          setProblems(data.problems);
+        } else {
+          setProblems([]);
+        }
       } catch (e: any) {
         setError(e.message || "Unknown error");
       } finally {
@@ -30,7 +38,7 @@ export default function ProblemsPage() {
       {loading ? (
         <div className="text-gray-500">Loading...</div>
       ) : error ? (
-        <div className="text-red-600">{error}</div>
+        <div className="text-red-600" role="alert">{error}</div>
       ) : problems.length === 0 ? (
         <div className="text-gray-500">No problems found.</div>
       ) : (

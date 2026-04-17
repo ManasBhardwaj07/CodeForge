@@ -12,12 +12,13 @@ export function ProblemList({ problems, onSelect }: {
   problems: Problem[];
   onSelect?: (problem: Problem) => void;
 }) {
-  if (!problems || problems.length === 0) {
+  const safeProblems = Array.isArray(problems) ? problems : [];
+  if (safeProblems.length === 0) {
     return <div className="text-gray-500">No problems found.</div>;
   }
   return (
     <div className="space-y-4">
-      {problems.map((problem, idx) => (
+      {safeProblems.map((problem, idx) => (
         <div
           key={problem.id}
           className="border rounded p-4 cursor-pointer hover:bg-gray-50 focus:outline-none focus:ring focus:ring-blue-300"

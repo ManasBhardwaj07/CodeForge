@@ -1,3 +1,4 @@
+console.log("SUBMIT ROUTE ACTIVE VERSION 999");
 import { AuthorizationError, requireAuth } from "@/lib/auth";
 import { errorResponse } from "@/lib/http";
 import { createQueuedSubmission, SubmissionServiceError } from "@/services/submission.service";
@@ -36,8 +37,14 @@ export async function POST(request: Request) {
       code: payload.code,
       language: payload.language,
     });
-
-    return Response.json({ submission }, { status: 201 });
+    console.log("ROUTE RETURNING:", submission.id);
+return Response.json(
+  {
+    submissionId: submission.id,
+    status: submission.status
+  },
+  { status: 201 }
+);
   } catch (error) {
     if (error instanceof SubmissionServiceError) {
       return errorResponse(error.message, error.code, error.statusCode);
