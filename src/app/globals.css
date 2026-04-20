@@ -1,1 +1,180 @@
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap");
 @import "tailwindcss";
+
+:root {
+  --font-sans: "Outfit", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+
+  --color-forge-bg:      #080d1a;
+  --color-forge-surface: #0d1526;
+  --color-forge-card:    #111d35;
+  --color-forge-border:  #1e3058;
+  --color-forge-cyan:    #22d3ee;
+  --color-forge-cyan-dim:#0891b2;
+  --color-forge-amber:   #f59e0b;
+  --color-forge-green:   #10b981;
+  --color-forge-red:     #f43f5e;
+  --color-forge-text:    #e2e8f0;
+  --color-forge-muted:   #64748b;
+}
+
+/* ── Base ───────────────────────────────────────────────── */
+html { color-scheme: dark; }
+
+body {
+  background-color: var(--color-forge-bg);
+  color: var(--color-forge-text);
+  font-family: var(--font-sans);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(34,211,238,0.06) 0%, transparent 60%),
+    url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%231e3058' fill-opacity='0.25'%3E%3Cpath d='M0 40L40 0H20L0 20M40 40V20L20 40'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-forge-bg); }
+::-webkit-scrollbar-thumb { background: var(--color-forge-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-forge-cyan-dim); }
+
+/* ── Animations ─────────────────────────────────────────── */
+@keyframes forge-fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes forge-slide-right {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes forge-slide-down {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes forge-pop {
+  0%   { transform: scale(0.9); opacity: 0; }
+  70%  { transform: scale(1.03); }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes forge-pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,211,238,0); }
+  50%       { box-shadow: 0 0 18px 4px rgba(34,211,238,0.18); }
+}
+@keyframes forge-shimmer {
+  from { background-position: -200% center; }
+  to   { background-position: 200% center; }
+}
+@keyframes forge-shake {
+  0%,100% { transform: translateX(0); }
+  20%     { transform: translateX(-6px); }
+  40%     { transform: translateX(6px); }
+  60%     { transform: translateX(-4px); }
+  80%     { transform: translateX(4px); }
+}
+@keyframes forge-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes forge-progress {
+  from { width: 0%; }
+  to   { width: 100%; }
+}
+
+.animate-fade-in    { animation: forge-fade-in    0.4s ease both; }
+.animate-slide-right{ animation: forge-slide-right 0.35s ease both; }
+.animate-slide-down { animation: forge-slide-down  0.35s ease both; }
+.animate-pop        { animation: forge-pop        0.45s cubic-bezier(.22,1,.36,1) both; }
+.animate-shake      { animation: forge-shake      0.45s ease; }
+.animate-spin-forge { animation: forge-spin       0.8s linear infinite; }
+
+/* staggered children */
+.stagger-children > * { animation: forge-fade-in 0.4s ease both; }
+.stagger-children > *:nth-child(1) { animation-delay: 0.05s; }
+.stagger-children > *:nth-child(2) { animation-delay: 0.10s; }
+.stagger-children > *:nth-child(3) { animation-delay: 0.15s; }
+.stagger-children > *:nth-child(4) { animation-delay: 0.20s; }
+.stagger-children > *:nth-child(5) { animation-delay: 0.25s; }
+
+/* ── Utility Classes ────────────────────────────────────── */
+.forge-card {
+  background: var(--color-forge-card);
+  border: 1px solid var(--color-forge-border);
+  border-radius: 12px;
+}
+.forge-card-hover {
+  background: var(--color-forge-card);
+  border: 1px solid var(--color-forge-border);
+  border-radius: 12px;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+.forge-card-hover:hover {
+  border-color: var(--color-forge-cyan);
+  box-shadow: 0 0 24px rgba(34,211,238,0.10);
+  transform: translateY(-1px);
+}
+.forge-btn-primary {
+  background: linear-gradient(135deg, #0891b2, #22d3ee);
+  color: #080d1a;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 0.5rem 1.25rem;
+  transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
+  border: none;
+  cursor: pointer;
+}
+.forge-btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(34,211,238,0.30);
+}
+.forge-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.forge-btn-ghost {
+  background: transparent;
+  border: 1px solid var(--color-forge-border);
+  color: var(--color-forge-text);
+  font-weight: 500;
+  border-radius: 8px;
+  padding: 0.5rem 1.25rem;
+  transition: border-color 0.2s, background 0.2s;
+  cursor: pointer;
+}
+.forge-btn-ghost:hover:not(:disabled) {
+  border-color: var(--color-forge-cyan);
+  background: rgba(34,211,238,0.06);
+}
+.forge-input {
+  background: var(--color-forge-surface);
+  border: 1px solid var(--color-forge-border);
+  border-radius: 8px;
+  color: var(--color-forge-text);
+  padding: 0.6rem 0.9rem;
+  width: 100%;
+  font-size: 0.95rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+.forge-input:focus {
+  border-color: var(--color-forge-cyan);
+  box-shadow: 0 0 0 3px rgba(34,211,238,0.12);
+}
+.forge-input::placeholder { color: var(--color-forge-muted); }
+
+.forge-badge-easy   { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.35); }
+.forge-badge-medium { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.35); }
+.forge-badge-hard   { background: rgba(244,63,94,0.15);  color: #f43f5e; border: 1px solid rgba(244,63,94,0.35); }
+
+.forge-verdict-accepted      { color: #10b981; }
+.forge-verdict-wrong_answer  { color: #f43f5e; }
+.forge-verdict-timeout       { color: #f59e0b; }
+.forge-verdict-runtime_error { color: #fb923c; }
+.forge-verdict-compile_error { color: #a78bfa; }
+
+.forge-glow-line {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-forge-cyan), transparent);
+}
+
+/* Monaco editor container */
+.monaco-wrapper {
+  border: 1px solid var(--color-forge-border);
+  border-radius: 8px;
+  overflow: hidden;
+}

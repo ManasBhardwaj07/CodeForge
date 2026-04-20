@@ -1,12 +1,5 @@
-// src/app/problems/[id]/page.tsx
-// FIX 1: Removed "use client" — this is now a proper Server Component.
-// FIX 2: params is typed as Promise<{id}> and awaited (required in Next.js 15).
-// FIX 3: Fetching is done server-side via the new /api/problems/[id] route.
-// FIX 4: All interactive/stateful UI is delegated to <ProblemSolver> (client component).
-// FIX 5: Removed all duplicate JSX blocks that were stray code outside functions.
-// FIX 6: Proper not-found and error handling with user-facing messages.
-
 import React from "react";
+import Link from "next/link";
 import { ProblemSolver } from "@/components/ProblemSolver";
 
 type Problem = {
@@ -17,34 +10,35 @@ type Problem = {
   difficulty: string;
 };
 
-// ─── Data Fetching ──────────────────────────────────────────────────────────
-// Calls the new /api/problems/[id] route (see src/app/api/problems/[id]/route.ts).
-// Falls back gracefully — never throws to the page boundary.
 async function getProblem(id: string): Promise<Problem | null> {
   try {
-    // In Next.js App Router server components, an absolute URL is required for
-    // fetch(). Use NEXT_PUBLIC_BASE_URL in production (e.g. "https://yourapp.com").
-    // Falls back to localhost for local development.
     const base =
       process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") ??
       `http://localhost:${process.env.PORT ?? 3000}`;
-
-    const res = await fetch(`${base}/api/problems/${id}`, {
-      cache: "no-store",
-    });
-
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
+    const res = await fetch(`${base}/api/problems/${id}`, { cache: "no-store" });
+    if (!res.ok) return null;
     return (await res.json()) as Problem;
   } catch {
     return null;
   }
 }
 
-// ─── Page ────────────────────────────────────────────────────────────────────
-// params is Promise<{id}> in Next.js 15; awaiting it is backward-compatible
-// with Next.js 14 where params is a plain object (awaiting a non-Promise is a no-op).
+function DiffBadge({ difficulty }: { difficulty: string }) {
+  const d = difficulty.toUpperCase();
+  const style =
+    d === "EASY"   ? { bg: "rgba(16,185,129,0.15)",  color: "#10b981", border: "rgba(16,185,129,0.35)" } :
+    d === "MEDIUM" ? { bg: "rgba(245,158,11,0.15)",  color: "#f59e0b", border: "rgba(245,158,11,0.35)" } :
+                    { bg: "rgba(244,63,94,0.15)",   color: "#f43f5e", border: "rgba(244,63,94,0.35)" };
+  return (
+    <span
+      className="text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wide"
+      style={{ background: style.bg, color: style.color, border: `1px solid ${style.border}` }}
+    >
+      {d === "EASY" ? "Easy" : d === "MEDIUM" ? "Medium" : "Hard"}
+    </span>
+  );
+}
+
 export default async function ProblemDetailPage({
   params,
 }: {
@@ -55,29 +49,88 @@ export default async function ProblemDetailPage({
 
   if (!problem) {
     return (
-      <main className="max-w-2xl mx-auto py-8 px-4">
-        <div className="text-red-600" role="alert">
-          Problem not found or failed to load. Please try again.
+      <main className="max-w-2xl mx-auto py-16 px-6 text-center">
+        <div
+          className="forge-card inline-flex flex-col items-center gap-3 px-10 py-8"
+          style={{ color: "#f43f5e" }}
+        >
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <p className="font-semibold">Problem not found.</p>
+          <Link href="/problems" className="text-sm" style={{ color: "#22d3ee" }}>← Back to problems</Link>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="max-w-2xl mx-auto py-8 px-4">
-      {/* Static problem info rendered server-side */}
-      <h1 className="text-2xl font-bold mb-2">{problem.title}</h1>
-      <div className="mb-4 text-gray-700 whitespace-pre-line">
-        {problem.description}
-      </div>
-      <div className="mb-4">
-        <span className="text-xs px-2 py-1 rounded bg-gray-200 text-gray-700">
-          {problem.difficulty}
-        </span>
+    <div
+      className="flex animate-fade-in"
+      style={{ height: "calc(100vh - 3.5rem)" }}
+    >
+      {/* ── LEFT PANE: Problem description ── */}
+      <div
+        className="flex flex-col overflow-hidden"
+        style={{
+          width: "50%",
+          borderRight: "1px solid #1e3058",
+          background: "#0d1526",
+        }}
+      >
+        {/* Problem header */}
+        <div
+          className="px-6 py-4 shrink-0"
+          style={{ borderBottom: "1px solid #1e3058", background: "rgba(0,0,0,0.3)" }}
+        >
+          <Link
+            href="/problems"
+            className="inline-flex items-center gap-1.5 text-xs mb-3 hover:opacity-80 transition-opacity"
+            style={{ color: "#64748b" }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+            All Problems
+          </Link>
+          <h1 className="text-xl font-extrabold mb-2 leading-tight" style={{ color: "#e2e8f0" }}>
+            {problem.title}
+          </h1>
+          <DiffBadge difficulty={problem.difficulty} />
+        </div>
+
+        {/* Description */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div
+            className="text-sm leading-relaxed whitespace-pre-line"
+            style={{ color: "#94a3b8" }}
+          >
+            {problem.description}
+          </div>
+
+          {/* Tip box */}
+          <div
+            className="mt-8 rounded-xl p-4 text-xs"
+            style={{
+              background: "rgba(34,211,238,0.05)",
+              border: "1px solid rgba(34,211,238,0.15)",
+              color: "#64748b",
+            }}
+          >
+            <p className="font-semibold mb-1" style={{ color: "#22d3ee" }}>💡 Tip</p>
+            <p>Read the input from <strong style={{ color: "#94a3b8" }}>stdin</strong> and print your answer to <strong style={{ color: "#94a3b8" }}>stdout</strong>. Make sure your output exactly matches the expected format.</p>
+          </div>
+        </div>
       </div>
 
-      {/* All hooks, state, and interactivity live in this client component */}
-      <ProblemSolver problemId={problem.id} />
-    </main>
+      {/* ── RIGHT PANE: Code Editor ── */}
+      <div
+        className="flex flex-col overflow-hidden"
+        style={{ width: "50%", background: "#080d1a" }}
+      >
+        <ProblemSolver problemId={problem.id} />
+      </div>
+    </div>
   );
 }
