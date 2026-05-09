@@ -93,6 +93,139 @@ const PROBLEMS = [
       { idx: 4, input: "1024",output: "YES", sample: false },
     ],
   },
+  {
+    slug: "sum-of-digits",
+    title: "Sum Of Digits",
+    description: "Given a non-negative integer N, print the sum of its digits.\n\nExample:\nInput: 123\nOutput: 6",
+    difficulty: ProblemDifficulty.EASY,
+    cases: [
+      { idx: 1, input: "123", output: "6", sample: true },
+      { idx: 2, input: "908", output: "17", sample: true },
+      { idx: 3, input: "0", output: "0", sample: false },
+    ],
+  },
+  {
+    slug: "even-or-odd",
+    title: "Even Or Odd",
+    description: "Given a number N, print 'EVEN' if it is even and 'ODD' otherwise.\n\nExample:\nInput: 7\nOutput: ODD",
+    difficulty: ProblemDifficulty.EASY,
+    cases: [
+      { idx: 1, input: "7", output: "ODD", sample: true },
+      { idx: 2, input: "24", output: "EVEN", sample: true },
+      { idx: 3, input: "-3", output: "ODD", sample: false },
+    ],
+  },
+  {
+    slug: "gcd-of-two",
+    title: "GCD Of Two",
+    description: "Given two integers A and B, print their greatest common divisor.\n\nExample:\nInput: 12 18\nOutput: 6",
+    difficulty: ProblemDifficulty.EASY,
+    cases: [
+      { idx: 1, input: "12 18", output: "6", sample: true },
+      { idx: 2, input: "9 27", output: "9", sample: true },
+      { idx: 3, input: "17 13", output: "1", sample: false },
+    ],
+  },
+  {
+    slug: "max-in-array",
+    title: "Max In Array",
+    description: "Given a list of integers on one line, print the largest value.\n\nExample:\nInput: 4 9 1 7\nOutput: 9",
+    difficulty: ProblemDifficulty.EASY,
+    cases: [
+      { idx: 1, input: "4 9 1 7", output: "9", sample: true },
+      { idx: 2, input: "-5 -2 -9", output: "-2", sample: true },
+      { idx: 3, input: "100 3 44 88", output: "100", sample: false },
+    ],
+  },
+  {
+    slug: "average-rounded",
+    title: "Average Rounded",
+    description: "Given three integers, print their average rounded down to the nearest integer.\n\nExample:\nInput: 2 4 5\nOutput: 3",
+    difficulty: ProblemDifficulty.MEDIUM,
+    cases: [
+      { idx: 1, input: "2 4 5", output: "3", sample: true },
+      { idx: 2, input: "10 20 30", output: "20", sample: true },
+      { idx: 3, input: "1 1 2", output: "1", sample: false },
+    ],
+  },
+  {
+    slug: "prefix-sum-query",
+    title: "Prefix Sum Query",
+    description: "Given N integers and a query index K, print the sum of the first K numbers. The input format is: first line N, second line the array, third line K.\n\nExample:\nInput:\n5\n1 2 3 4 5\n3\nOutput: 6",
+    difficulty: ProblemDifficulty.MEDIUM,
+    cases: [
+      { idx: 1, input: "5\n1 2 3 4 5\n3", output: "6", sample: true },
+      { idx: 2, input: "4\n10 20 30 40\n2", output: "30", sample: true },
+      { idx: 3, input: "3\n7 8 9\n1", output: "7", sample: false },
+    ],
+  },
+  {
+    slug: "balanced-brackets",
+    title: "Balanced Brackets",
+    description: "Given a string containing only parentheses, print 'YES' if it is balanced and 'NO' otherwise.\n\nExample:\nInput: (())\nOutput: YES",
+    difficulty: ProblemDifficulty.MEDIUM,
+    cases: [
+      { idx: 1, input: "(())", output: "YES", sample: true },
+      { idx: 2, input: "(()", output: "NO", sample: true },
+      { idx: 3, input: ")()(", output: "NO", sample: false },
+    ],
+  },
+  {
+    slug: "longest-word",
+    title: "Longest Word",
+    description: "Given a sentence, print the longest word. If there are multiple, print the first one.\n\nExample:\nInput: code forge platform\nOutput: platform",
+    difficulty: ProblemDifficulty.MEDIUM,
+    cases: [
+      { idx: 1, input: "code forge platform", output: "platform", sample: true },
+      { idx: 2, input: "a bb ccc dd", output: "ccc", sample: true },
+      { idx: 3, input: "one two", output: "one", sample: false },
+    ],
+  },
+  {
+    slug: "matrix-diagonal-sum",
+    title: "Matrix Diagonal Sum",
+    description: "Given a 3x3 matrix, print the sum of the main diagonal. The nine numbers are given in row-major order.\n\nExample:\nInput: 1 2 3 4 5 6 7 8 9\nOutput: 15",
+    difficulty: ProblemDifficulty.MEDIUM,
+    cases: [
+      { idx: 1, input: "1 2 3 4 5 6 7 8 9", output: "15", sample: true },
+      { idx: 2, input: "9 1 2 3 8 4 5 6 7", output: "24", sample: true },
+      { idx: 3, input: "2 0 1 4 3 6 7 8 5", output: "10", sample: false },
+    ],
+  },
+  {
+    slug: "prime-check",
+    title: "Prime Check",
+    description: "Given a positive integer N, print 'PRIME' if it is prime and 'COMPOSITE' otherwise.\n\nExample:\nInput: 7\nOutput: PRIME",
+    difficulty: ProblemDifficulty.HARD,
+    cases: [
+      { idx: 1, input: "7", output: "PRIME", sample: true },
+      { idx: 2, input: "18", output: "COMPOSITE", sample: true },
+      { idx: 3, input: "97", output: "PRIME", sample: false },
+      { idx: 4, input: "100", output: "COMPOSITE", sample: false },
+    ],
+  },
+  {
+    slug: "maximum-subarray-sum",
+    title: "Maximum Subarray Sum",
+    description: "Given a list of integers, print the maximum possible sum of any contiguous subarray.\n\nExample:\nInput: -2 1 -3 4 -1 2 1 -5 4\nOutput: 6",
+    difficulty: ProblemDifficulty.HARD,
+    cases: [
+      { idx: 1, input: "-2 1 -3 4 -1 2 1 -5 4", output: "6", sample: true },
+      { idx: 2, input: "1 2 3", output: "6", sample: true },
+      { idx: 3, input: "-5 -1 -8", output: "-1", sample: false },
+    ],
+  },
+  {
+    slug: "longest-common-prefix",
+    title: "Longest Common Prefix",
+    description: "Given three words on a single line, print the longest common prefix shared by all of them. If there is no common prefix, print an empty line.\n\nExample:\nInput: flower flow flight\nOutput: fl",
+    difficulty: ProblemDifficulty.HARD,
+    cases: [
+      { idx: 1, input: "flower flow flight", output: "fl", sample: true },
+      { idx: 2, input: "interview internet internal", output: "inter", sample: true },
+      { idx: 3, input: "dog race car", output: "", sample: false },
+    ],
+  },
 ];
 
 async function main() {

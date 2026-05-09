@@ -8,6 +8,13 @@ type Problem = {
   slug: string;
   description: string;
   difficulty: string;
+  testCases?: {
+    id: string;
+    input: string;
+    expectedOutput: string;
+    isSample: boolean;
+    orderIndex: number;
+  }[];
 };
 
 async function getProblem(id: string): Promise<Problem | null> {
@@ -108,6 +115,42 @@ export default async function ProblemDetailPage({
           >
             {problem.description}
           </div>
+
+          {/* Examples */}
+          {problem.testCases?.some((t) => t.isSample) && (
+            <div className="mt-8 space-y-3">
+              <p className="text-sm font-semibold" style={{ color: "#e2e8f0" }}>Examples</p>
+              {problem.testCases
+                ?.filter((t) => t.isSample)
+                .map((sample, idx) => (
+                  <div key={sample.id} className="forge-card p-4">
+                    <div className="text-xs font-semibold mb-2" style={{ color: "#94a3b8" }}>
+                      Example {idx + 1}
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <div className="text-xs font-semibold mb-1" style={{ color: "#64748b" }}>Input</div>
+                        <pre
+                          className="rounded p-2 text-xs leading-relaxed overflow-x-auto"
+                          style={{ background: "#0a0f1e", color: "#e2e8f0", fontFamily: "var(--font-mono)" }}
+                        >
+                          {sample.input || "—"}
+                        </pre>
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold mb-1" style={{ color: "#64748b" }}>Output</div>
+                        <pre
+                          className="rounded p-2 text-xs leading-relaxed overflow-x-auto"
+                          style={{ background: "#0a0f1e", color: "#e2e8f0", fontFamily: "var(--font-mono)" }}
+                        >
+                          {sample.expectedOutput || "—"}
+                        </pre>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
 
           {/* Tip box */}
           <div

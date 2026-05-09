@@ -28,6 +28,9 @@ enum ProblemDifficulty {
 enum ProgrammingLanguage {
   CPP
   JAVASCRIPT
+  PYTHON
+  JAVA
+  C
 }
 
 enum SubmissionVerdict {

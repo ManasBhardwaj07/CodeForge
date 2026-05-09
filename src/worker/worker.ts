@@ -1,11 +1,12 @@
 import { Worker } from "bullmq";
 import { SubmissionStatus } from "../../generated/prisma/index.js";
-import { getQueueConnectionOptions, SUBMISSION_QUEUE_NAME, type SubmissionJobData } from "../lib/queue.js";
+import { getQueueConnectionOptions, SUBMISSION_QUEUE_NAME, type JobData, type RunJobData } from "../lib/queue.js";
 import { prisma } from "../lib/prisma";
 import {
   DEFAULT_GLOBAL_TIMEOUT_MS,
   DEFAULT_PER_TEST_TIMEOUT_MS,
   executeInSandbox,
+  type ExecutionLanguage,
 } from "../services/execution.service";
 import { evaluateSubmission } from "../services/evaluation.service";
 
@@ -246,58 +247,115 @@ async function executeSubmission(submissionId: string) {
   }
 }
 
-const worker = new Worker<SubmissionJobData>(
+async function handleRunJob(language: string, code: string, customInput: string) {
+  // Execute code with custom input
+  // Result is STORED IN JOB RETURN VALUE (ephemeral, no DB)
+  
+  const outcome = await executeInSandbox({
+    language: language as ExecutionLanguage,
+    code,
+    input: customInput,
+    policy: {
+      perTestTimeoutMs: DEFAULT_PER_TEST_TIMEOUT_MS,
+      globalTimeoutMs: DEFAULT_GLOBAL_TIMEOUT_MS,
+    },
+  });
+
+  console.info(
+    [
+      "Run execution completed",
+      `language=${language}`,
+      `success=${outcome.success}`,
+      `errorType=${outcome.errorType ?? "NONE"}`,
+      `durationMs=${outcome.executionTimeMs}`,
+    ].join(" | "),
+  );
+
+  // Return result (stored in job.returnValue by Bull)
+  return {
+    stdout: outcome.stdout,
+    stderr: outcome.stderr,
+    exitCode: outcome.exitCode,
+    executionTimeMs: outcome.executionTimeMs,
+    errorType: outcome.errorType,
+  };
+}
+
+async function handleSubmissionJob(submissionId: string) {
+  // Execute submission with all test cases
+  // Result is PERSISTED TO DATABASE (official verdict)
+
+  await executeSubmission(submissionId);
+  const evaluation = await evaluateSubmission(submissionId);
+
+  const completed = await prisma.submission.updateMany({
+    where: {
+      id: submissionId,
+      status: SubmissionStatus.RUNNING,
+    },
+    data: {
+      status: SubmissionStatus.COMPLETED,
+      verdict: evaluation.verdict,
+      totalTests: evaluation.totalTests,
+      passedTests: evaluation.passedTests,
+      failedTests: evaluation.failedTests,
+      completedAt: new Date(),
+      failedAt: null,
+    },
+  });
+
+  if (completed.count === 0) {
+    throw new Error(`Submission ${submissionId} is not RUNNING when completing`);
+  }
+
+  console.log(`Completed submission: ${submissionId}`);
+}
+
+const worker = new Worker<JobData>(
   SUBMISSION_QUEUE_NAME,
   async (job) => {
-    const { submissionId } = job.data;
+    const data = job.data;
 
-    console.log(`Processing submission: ${submissionId}`);
+    // Dispatch based on job type
+    if (data.type === 'submission') {
+      // Submission job: persist results
+      const submissionId = data.submissionId;
+      console.log(`Processing submission: ${submissionId}`);
 
-    const started = await prisma.submission.updateMany({
-      where: {
-        id: submissionId,
-        status: SubmissionStatus.QUEUED,
-      },
-      data: {
-        status: SubmissionStatus.RUNNING,
-        startedAt: new Date(),
-        verdict: null,
-        totalTests: 0,
-        passedTests: 0,
-        failedTests: 0,
-        completedAt: null,
-        failedAt: null,
-      },
-    });
+      const started = await prisma.submission.updateMany({
+        where: {
+          id: submissionId,
+          status: SubmissionStatus.QUEUED,
+        },
+        data: {
+          status: SubmissionStatus.RUNNING,
+          startedAt: new Date(),
+          verdict: null,
+          totalTests: 0,
+          passedTests: 0,
+          failedTests: 0,
+          completedAt: null,
+          failedAt: null,
+        },
+      });
 
-    if (started.count === 0) {
-      throw new Error(`Submission ${submissionId} is not QUEUED or does not exist`);
+      if (started.count === 0) {
+        throw new Error(`Submission ${submissionId} is not QUEUED or does not exist`);
+      }
+
+      await handleSubmissionJob(submissionId);
+    } else if (data.type === 'run') {
+      // Run job: return ephemeral result
+      const runData = data as RunJobData;
+      console.log(`Processing run: ${runData.jobId}`);
+
+      const result = await handleRunJob(runData.language, runData.code, runData.customInput);
+      
+      // Return result (stored in job.returnValue by Bull)
+      return result;
+    } else {
+      throw new Error("Invalid job type");
     }
-
-    await executeSubmission(submissionId);
-    const evaluation = await evaluateSubmission(submissionId);
-
-    const completed = await prisma.submission.updateMany({
-      where: {
-        id: submissionId,
-        status: SubmissionStatus.RUNNING,
-      },
-      data: {
-        status: SubmissionStatus.COMPLETED,
-        verdict: evaluation.verdict,
-        totalTests: evaluation.totalTests,
-        passedTests: evaluation.passedTests,
-        failedTests: evaluation.failedTests,
-        completedAt: new Date(),
-        failedAt: null,
-      },
-    });
-
-    if (completed.count === 0) {
-      throw new Error(`Submission ${submissionId} is not RUNNING when completing`);
-    }
-
-    console.log(`Completed submission: ${submissionId}`);
   },
   {
     connection: getQueueConnectionOptions(),
@@ -318,9 +376,16 @@ worker.on("ready", () => {
 });
 
 worker.on("failed", async (job, error) => {
-  const submissionId = job?.data?.submissionId;
+  if (!job) {
+    console.error("Failed job with no data:", error.message);
+    return;
+  }
 
-  if (submissionId) {
+  const data = job.data;
+
+  if (data.type === 'submission') {
+    // Only fail submission if it's still QUEUED or RUNNING
+    const submissionId = data.submissionId;
     await prisma.submission.updateMany({
       where: {
         id: submissionId,
@@ -334,6 +399,7 @@ worker.on("failed", async (job, error) => {
       },
     });
   }
+  // Run jobs don't need special handling - they're ephemeral and will expire
 
   console.error(`Failed job ${job?.id ?? "unknown"}:`, error.message);
 });

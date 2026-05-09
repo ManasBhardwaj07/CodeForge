@@ -2,7 +2,7 @@ import { AuthorizationError, requireAuth } from "@/lib/auth";
 import { errorResponse } from "@/lib/http";
 import { createQueuedSubmission, SubmissionServiceError } from "@/services/submission.service";
 
-const SUPPORTED_LANGUAGES = ["CPP", "JAVASCRIPT"];
+const SUPPORTED_LANGUAGES = ["CPP", "JAVASCRIPT", "PYTHON", "JAVA", "C"];
 const CODE_MAX_LENGTH = 20000;
 
 type SubmitRequestBody = {

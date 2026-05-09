@@ -18,6 +18,8 @@ const LANG_MAP: Record<string, string> = {
   JAVASCRIPT: "javascript",
   CPP: "cpp",
   PYTHON: "python",
+  JAVA: "java",
+  C: "c",
 };
 
 const EDITOR_OPTIONS = {

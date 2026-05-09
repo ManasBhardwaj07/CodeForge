@@ -1,11 +1,10 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getToken } from "@/lib/auth-client";
 
-const STATS = [
-  { label: "Problems", value: "8+" },
-  { label: "Languages", value: "2" },
+const STATIC_STATS = [
+  { label: "Languages", value: "5" },
   { label: "Async Queue", value: "BullMQ" },
 ];
 
@@ -40,7 +39,48 @@ const FEATURES = [
 ];
 
 export default function Home() {
-const [authed] = useState<boolean>(() => !!getToken());
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [problemCount, setProblemCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    // Check auth on client only (after hydration)
+    const checkAuth = () => {
+      setAuthed(!!getToken());
+    };
+    
+    // Use setTimeout to defer setState to after render
+    const timer = setTimeout(checkAuth, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProblemCount = async () => {
+      try {
+        const res = await fetch("/api/problems", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json() as { count?: number; problems?: Array<unknown> };
+        const count = typeof data.count === "number"
+          ? data.count
+          : Array.isArray(data.problems)
+            ? data.problems.length
+            : null;
+        if (!cancelled) {
+          setProblemCount(count);
+        }
+      } catch {
+        if (!cancelled) {
+          setProblemCount(null);
+        }
+      }
+    };
+
+    void loadProblemCount();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <main className="w-full max-w-5xl mx-auto px-6 py-16 animate-fade-in">
@@ -101,7 +141,7 @@ const [authed] = useState<boolean>(() => !!getToken());
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 mb-16 stagger-children">
-        {STATS.map(({ label, value }) => (
+        {[{ label: "Problems", value: problemCount == null ? "—" : String(problemCount) }, ...STATIC_STATS].map(({ label, value }) => (
           <div key={label} className="forge-card text-center py-5 px-4">
             <div className="text-2xl font-extrabold mb-1" style={{ color: "#22d3ee" }}>{value}</div>
             <div className="text-xs font-medium uppercase tracking-widest" style={{ color: "#64748b" }}>{label}</div>

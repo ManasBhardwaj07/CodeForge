@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import React, { useState, useEffect } from "react";
+import React, { useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 
 function parseTokenState(token: string | null): { isAuthenticated: boolean; username: string | null } {
@@ -23,24 +23,18 @@ function readLocalStorage(): string | null {
 
 export function Navbar() {
   const pathname = usePathname();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [username, setUsername] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const token = useSyncExternalStore(
+    (callback) => {
+      if (typeof window === "undefined") return () => undefined;
+      window.addEventListener("storage", callback);
+      return () => window.removeEventListener("storage", callback);
+    },
+    () => readLocalStorage(),
+    () => null,
+  );
 
-  useEffect(() => {
-  const sync = () => {
-    const { isAuthenticated: a, username: u } = parseTokenState(readLocalStorage());
-    setIsAuthenticated(a);
-    setUsername(u);
-  };
-
-  sync();
-  setMounted(true);
-
-  window.addEventListener("storage", sync);
-  return () => window.removeEventListener("storage", sync);
-}, []);
+  const { isAuthenticated, username } = parseTokenState(token);
 
   const navLinks = [
     { href: "/problems", label: "Problems" },
@@ -100,7 +94,7 @@ export function Navbar() {
 
         {/* Auth area */}
         <div className="flex items-center gap-3">
-          {mounted && isAuthenticated ? (
+          {isAuthenticated ? (
             <>
               <span
                 className="hidden sm:flex items-center gap-1.5 text-sm font-semibold px-3 py-1 rounded-full animate-slide-right"

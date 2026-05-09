@@ -4,7 +4,26 @@ import { env } from "@/lib/env";
 export const SUBMISSION_QUEUE_NAME = "submission-queue";
 
 export type SubmissionJobData = {
+  type: 'submission';
   submissionId: string;
+};
+
+export type RunJobData = {
+  type: 'run';
+  jobId: string;
+  language: string;
+  code: string;
+  customInput: string;
+};
+
+export type JobData = SubmissionJobData | RunJobData;
+
+export type RunResult = {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  executionTimeMs: number | null;
+  errorType: string | null;
 };
 
 const queueConnection = {
@@ -14,11 +33,11 @@ const queueConnection = {
 };
 
 const globalForQueue = globalThis as unknown as {
-  submissionQueue: Queue<SubmissionJobData> | undefined;
+  submissionQueue: Queue<JobData> | undefined;
 };
 
 function createSubmissionQueue() {
-  return new Queue<SubmissionJobData>(SUBMISSION_QUEUE_NAME, {
+  return new Queue<JobData>(SUBMISSION_QUEUE_NAME, {
     connection: queueConnection,
     defaultJobOptions: {
       removeOnComplete: false,

@@ -48,7 +48,10 @@ export async function createQueuedSubmission(
 
   const job = await getSubmissionQueue().add(
     "process-submission",
-    { submissionId: submission.id },
+    { 
+      type: 'submission',
+      submissionId: submission.id 
+    },
     { jobId: `submission-${submission.id}` }
   );
   console.log("QUEUE JOB ID:", job.id);

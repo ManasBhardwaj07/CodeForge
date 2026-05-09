@@ -81,19 +81,12 @@ export default function ProblemsPage() {
       </div>
 
       {/* Controls */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 mb-6 items-center">
         {/* Search */}
-        <div className="relative flex-1">
-          <svg
-            className="absolute left-3 top-1/2 -translate-y-1/2"
-            width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="#64748b" strokeWidth="2"
-          >
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
+        <div className="min-w-0">
           <input
             type="text"
-            className="forge-input pl-9"
+            className="forge-input w-full"
             placeholder="Search problems…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -102,7 +95,7 @@ export default function ProblemsPage() {
 
         {/* Difficulty pills */}
         <div
-          className="flex items-center gap-1 p-1 rounded-lg"
+          className="flex items-center gap-1 p-1 rounded-lg flex-wrap justify-start"
           style={{ background: "rgba(0,0,0,0.3)", border: "1px solid #1e3058" }}
         >
           {(["ALL", "EASY", "MEDIUM", "HARD"] as const).map((d) => {
