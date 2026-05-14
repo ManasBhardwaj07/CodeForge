@@ -1,18 +1,55 @@
+import { rm } from "node:fs/promises";
 import { Worker } from "bullmq";
 import { SubmissionStatus } from "../../generated/prisma/index.js";
-import { getQueueConnectionOptions, SUBMISSION_QUEUE_NAME, type JobData, type RunJobData } from "../lib/queue.js";
+import {
+  getDeadLetterQueue,
+  getQueueConnectionOptions,
+  SUBMISSION_QUEUE_NAME,
+  type JobData,
+  type RunJobData,
+} from "../lib/queue.js";
 import { prisma } from "../lib/prisma";
 import {
   DEFAULT_GLOBAL_TIMEOUT_MS,
   DEFAULT_PER_TEST_TIMEOUT_MS,
+  compileCppInDocker,
   executeInSandbox,
+  runCompiledCppInDocker,
   type ExecutionLanguage,
 } from "../services/execution.service";
 import { evaluateSubmission } from "../services/evaluation.service";
 
 const STALE_RUNNING_TIMEOUT_MS = 5 * 60 * 1000;
 const STALE_RECOVERY_INTERVAL_MS = 60 * 1000;
-const WORKER_PER_TEST_TIMEOUT_MS = Math.max(DEFAULT_PER_TEST_TIMEOUT_MS, 5000);
+const WORKER_PER_TEST_TIMEOUT_MS = Math.max(DEFAULT_PER_TEST_TIMEOUT_MS, 15000);
+
+type LogLevel = "info" | "warn" | "error";
+
+function logEvent(level: LogLevel, message: string, meta?: Record<string, unknown>) {
+  const payload = {
+    level,
+    message,
+    timestamp: new Date().toISOString(),
+    ...meta,
+  };
+
+  if (level === "warn") {
+    console.warn(JSON.stringify(payload));
+    return;
+  }
+
+  if (level === "error") {
+    console.error(JSON.stringify(payload));
+    return;
+  }
+
+  console.info(JSON.stringify(payload));
+}
+
+function isFinalAttempt(attemptsMade: number, attempts: number | undefined) {
+  const total = attempts ?? 1;
+  return attemptsMade >= total;
+}
 
 async function recoverStaleRunningSubmissions() {
   const cutoff = new Date(Date.now() - STALE_RUNNING_TIMEOUT_MS);
@@ -31,7 +68,7 @@ async function recoverStaleRunningSubmissions() {
   });
 
   if (recovered.count > 0) {
-    console.warn(`Recovered stale RUNNING submissions: ${recovered.count}`);
+    logEvent("warn", "Recovered stale RUNNING submissions", { recovered: recovered.count });
   }
 }
 
@@ -122,6 +159,127 @@ async function executeSubmission(submissionId: string) {
   const submissionDeadline = Date.now() + DEFAULT_GLOBAL_TIMEOUT_MS;
   let infrastructureFailure: string | null = null;
 
+  if (submission.language === "CPP") {
+    const compileRemainingMs = submissionDeadline - Date.now();
+    if (compileRemainingMs <= 0) {
+      for (const testCase of testCases) {
+        if (!testCase) {
+          continue;
+        }
+        await createExecutionResultRecord({
+          submissionId,
+          testCaseId: testCase.id,
+          inputSnapshot: testCase.input,
+          expectedOutputSnapshot: testCase.expectedOutput,
+          actualOutput: "",
+          stderr: "[TIMEOUT] Global submission timeout exceeded",
+          exitCode: null,
+          executionTimeMs: null,
+          passed: false,
+        });
+      }
+      return;
+    }
+
+    const compilePolicy = {
+      perTestTimeoutMs: Math.min(WORKER_PER_TEST_TIMEOUT_MS, compileRemainingMs),
+      globalTimeoutMs: compileRemainingMs,
+    };
+
+    const { outcome: compileOutcome, artifact } = await compileCppInDocker({
+      code: submission.code,
+      policy: compilePolicy,
+      context: { submissionId },
+    });
+
+    if (!artifact || !compileOutcome.success) {
+      for (const testCase of testCases) {
+        if (!testCase) {
+          continue;
+        }
+        await createExecutionResultRecord({
+          submissionId,
+          testCaseId: testCase.id,
+          inputSnapshot: testCase.input,
+          expectedOutputSnapshot: testCase.expectedOutput,
+          actualOutput: "",
+          stderr: formatErrorForPersistence(compileOutcome.errorType, compileOutcome.stderr) ?? "[COMPILE_ERROR]",
+          exitCode: compileOutcome.exitCode,
+          executionTimeMs: compileOutcome.executionTimeMs,
+          passed: false,
+        });
+      }
+      return;
+    }
+
+    try {
+      for (let index = 0; index < testCases.length; index += 1) {
+        const testCase = testCases[index];
+        if (!testCase) {
+          continue;
+        }
+        const remainingMs = submissionDeadline - Date.now();
+
+        if (remainingMs <= 0) {
+          for (let pendingIndex = index; pendingIndex < testCases.length; pendingIndex += 1) {
+            const pendingCase = testCases[pendingIndex];
+            if (!pendingCase) {
+              continue;
+            }
+            await createExecutionResultRecord({
+              submissionId,
+              testCaseId: pendingCase.id,
+              inputSnapshot: pendingCase.input,
+              expectedOutputSnapshot: pendingCase.expectedOutput,
+              actualOutput: "",
+              stderr: `[TIMEOUT] Global submission timeout exceeded (${DEFAULT_GLOBAL_TIMEOUT_MS}ms)` ,
+              exitCode: null,
+              executionTimeMs: null,
+              passed: false,
+            });
+          }
+          break;
+        }
+
+        const runPolicy = {
+          perTestTimeoutMs: Math.min(WORKER_PER_TEST_TIMEOUT_MS, remainingMs),
+          globalTimeoutMs: remainingMs,
+        };
+
+        const runOutcome = await runCompiledCppInDocker({
+          artifact,
+          input: testCase.input,
+          policy: runPolicy,
+          context: { submissionId, testCaseId: testCase.id },
+        });
+
+        const passed =
+          runOutcome.success && !runOutcome.timedOut &&
+          normalizeOutput(runOutcome.stdout) === normalizeOutput(testCase.expectedOutput);
+
+        const executionTimeMs = index === 0
+          ? runOutcome.executionTimeMs + artifact.compileExecutionTimeMs
+          : runOutcome.executionTimeMs;
+
+        await createExecutionResultRecord({
+          submissionId,
+          testCaseId: testCase.id,
+          inputSnapshot: testCase.input,
+          expectedOutputSnapshot: testCase.expectedOutput,
+          actualOutput: runOutcome.stdout,
+          stderr: formatErrorForPersistence(runOutcome.errorType, runOutcome.stderr),
+          exitCode: runOutcome.exitCode,
+          executionTimeMs,
+          passed,
+        });
+      }
+    } finally {
+      await rm(artifact.workspaceDir, { recursive: true, force: true });
+    }
+
+    return;
+  }
+
   for (let index = 0; index < testCases.length; index += 1) {
     const testCase = testCases[index];
 
@@ -156,12 +314,13 @@ async function executeSubmission(submissionId: string) {
     }
 
     try {
+      const perTestTimeoutMs = Math.min(WORKER_PER_TEST_TIMEOUT_MS, remainingMs);
       const outcome = await executeInSandbox({
         language: submission.language,
         code: submission.code,
         input: testCase.input,
         policy: {
-          perTestTimeoutMs: WORKER_PER_TEST_TIMEOUT_MS,
+          perTestTimeoutMs,
           globalTimeoutMs: remainingMs,
         },
         context: {
@@ -174,19 +333,16 @@ async function executeSubmission(submissionId: string) {
         outcome.success && !outcome.timedOut &&
         normalizeOutput(outcome.stdout) === normalizeOutput(testCase.expectedOutput);
 
-      console.info(
-        [
-          "Execution metadata",
-          `submissionId=${submissionId}`,
-          `testCaseId=${testCase.id}`,
-          `errorType=${outcome.errorType ?? "NONE"}`,
-          `durationMs=${outcome.executionTimeMs}`,
-          `containerId=${outcome.metadata.containerId ?? "n/a"}`,
-          `compileContainerId=${outcome.metadata.compileContainerId ?? "n/a"}`,
-          `runContainerId=${outcome.metadata.runContainerId ?? "n/a"}`,
-          `outputTruncated=${outcome.metadata.outputTruncated}`,
-        ].join(" | "),
-      );
+      logEvent("info", "Execution metadata", {
+        submissionId,
+        testCaseId: testCase.id,
+        errorType: outcome.errorType ?? "NONE",
+        durationMs: outcome.executionTimeMs,
+        containerId: outcome.metadata.containerId ?? "n/a",
+        compileContainerId: outcome.metadata.compileContainerId ?? "n/a",
+        runContainerId: outcome.metadata.runContainerId ?? "n/a",
+        outputTruncated: outcome.metadata.outputTruncated,
+      });
 
       await createExecutionResultRecord({
         submissionId,
@@ -250,26 +406,25 @@ async function executeSubmission(submissionId: string) {
 async function handleRunJob(language: string, code: string, customInput: string) {
   // Execute code with custom input
   // Result is STORED IN JOB RETURN VALUE (ephemeral, no DB)
+  const runPolicy = {
+    perTestTimeoutMs: 15000,
+    globalTimeoutMs: 45000,
+  };
   
   const outcome = await executeInSandbox({
     language: language as ExecutionLanguage,
     code,
     input: customInput,
-    policy: {
-      perTestTimeoutMs: DEFAULT_PER_TEST_TIMEOUT_MS,
-      globalTimeoutMs: DEFAULT_GLOBAL_TIMEOUT_MS,
-    },
+    policy: runPolicy,
   });
 
-  console.info(
-    [
-      "Run execution completed",
-      `language=${language}`,
-      `success=${outcome.success}`,
-      `errorType=${outcome.errorType ?? "NONE"}`,
-      `durationMs=${outcome.executionTimeMs}`,
-    ].join(" | "),
-  );
+  logEvent("info", "Run execution completed", {
+    language,
+    success: outcome.success,
+    errorType: outcome.errorType ?? "NONE",
+    durationMs: outcome.executionTimeMs,
+    outputTruncated: outcome.metadata.outputTruncated,
+  });
 
   // Return result (stored in job.returnValue by Bull)
   return {
@@ -278,6 +433,7 @@ async function handleRunJob(language: string, code: string, customInput: string)
     exitCode: outcome.exitCode,
     executionTimeMs: outcome.executionTimeMs,
     errorType: outcome.errorType,
+    outputTruncated: outcome.metadata.outputTruncated,
   };
 }
 
@@ -308,7 +464,7 @@ async function handleSubmissionJob(submissionId: string) {
     throw new Error(`Submission ${submissionId} is not RUNNING when completing`);
   }
 
-  console.log(`Completed submission: ${submissionId}`);
+  logEvent("info", "Submission completed", { submissionId });
 }
 
 const worker = new Worker<JobData>(
@@ -320,7 +476,7 @@ const worker = new Worker<JobData>(
     if (data.type === 'submission') {
       // Submission job: persist results
       const submissionId = data.submissionId;
-      console.log(`Processing submission: ${submissionId}`);
+      logEvent("info", "Processing submission", { submissionId, jobId: job.id });
 
       const started = await prisma.submission.updateMany({
         where: {
@@ -347,7 +503,7 @@ const worker = new Worker<JobData>(
     } else if (data.type === 'run') {
       // Run job: return ephemeral result
       const runData = data as RunJobData;
-      console.log(`Processing run: ${runData.jobId}`);
+      logEvent("info", "Processing run", { jobId: runData.jobId });
 
       const result = await handleRunJob(runData.language, runData.code, runData.customInput);
       
@@ -372,40 +528,72 @@ const staleRecoveryTimer = setInterval(() => {
 staleRecoveryTimer.unref();
 
 worker.on("ready", () => {
-  console.log("Submission worker is ready");
+  logEvent("info", "Submission worker is ready");
 });
 
 worker.on("failed", async (job, error) => {
   if (!job) {
-    console.error("Failed job with no data:", error.message);
+    logEvent("error", "Failed job with no data", { error: error.message });
     return;
   }
 
   const data = job.data;
+  const attemptsMade = job.attemptsMade ?? 0;
+  const attempts = job.opts.attempts ?? 1;
+  const finalAttempt = isFinalAttempt(attemptsMade, attempts);
 
   if (data.type === 'submission') {
     // Only fail submission if it's still QUEUED or RUNNING
     const submissionId = data.submissionId;
-    await prisma.submission.updateMany({
-      where: {
-        id: submissionId,
-        status: {
-          in: [SubmissionStatus.QUEUED, SubmissionStatus.RUNNING],
+
+    if (finalAttempt) {
+      await prisma.submission.updateMany({
+        where: {
+          id: submissionId,
+          status: {
+            in: [SubmissionStatus.QUEUED, SubmissionStatus.RUNNING],
+          },
         },
-      },
-      data: {
-        status: SubmissionStatus.FAILED,
-        failedAt: new Date(),
-      },
-    });
+        data: {
+          status: SubmissionStatus.FAILED,
+          failedAt: new Date(),
+        },
+      });
+    }
   }
   // Run jobs don't need special handling - they're ephemeral and will expire
 
-  console.error(`Failed job ${job?.id ?? "unknown"}:`, error.message);
+  logEvent(finalAttempt ? "error" : "warn", "Job failed", {
+    jobId: job.id,
+    jobName: job.name,
+    attemptsMade,
+    attempts,
+    finalAttempt,
+    error: error.message,
+  });
+
+  if (finalAttempt) {
+    await getDeadLetterQueue().add(
+      "dead-letter",
+      {
+        originalQueue: SUBMISSION_QUEUE_NAME,
+        jobId: job.id,
+        jobName: job.name,
+        data: job.data,
+        failedReason: error.message,
+        attemptsMade,
+        timestamp: new Date().toISOString(),
+      },
+      {
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    );
+  }
 });
 
 worker.on("error", (error) => {
-  console.error("Worker runtime error:", error);
+  logEvent("error", "Worker runtime error", { error: error.message });
 });
 
 async function shutdown() {

@@ -14,6 +14,12 @@ const LANGUAGES = [
 
 const TERMINAL = new Set(["COMPLETED", "FAILED"]);
 const POLL_MS = 2000;
+const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  QUEUED: { bg: "rgba(59,130,246,0.12)", text: "#60a5fa", border: "rgba(59,130,246,0.35)" },
+  RUNNING: { bg: "rgba(245,158,11,0.12)", text: "#f59e0b", border: "rgba(245,158,11,0.35)" },
+  COMPLETED: { bg: "rgba(16,185,129,0.12)", text: "#10b981", border: "rgba(16,185,129,0.35)" },
+  FAILED: { bg: "rgba(244,63,94,0.12)", text: "#f43f5e", border: "rgba(244,63,94,0.35)" },
+};
 
 type ExecResult = {
   id?: string;
@@ -26,6 +32,16 @@ type ExecResult = {
   executionTimeMs?: number | null;
 };
 
+type RunResult = {
+  status: string;
+  stdout?: string;
+  stderr?: string;
+  executionTimeMs?: number;
+  exitCode?: number;
+  outputTruncated?: boolean;
+  error?: string;
+};
+
 type Submission = {
   id: string;
   status: string;
@@ -34,6 +50,18 @@ type Submission = {
   errorMessage?: string | null;
   executionResults?: ExecResult[];
 };
+
+function StatusPill({ label, status }: { label: string; status: string }) {
+  const style = STATUS_COLORS[status] ?? { bg: "rgba(100,116,139,0.12)", text: "#94a3b8", border: "rgba(100,116,139,0.35)" };
+  return (
+    <span
+      className="px-2.5 py-1 rounded-full text-xs font-semibold"
+      style={{ background: style.bg, color: style.text, border: `1px solid ${style.border}` }}
+    >
+      {label}: {status}
+    </span>
+  );
+}
 
 function VerdictBadge({ verdict }: { verdict: string }) {
   const upper = verdict.toUpperCase();
@@ -220,7 +248,7 @@ function ResultModal({
   );
 }
 
-export function ProblemSolver({ problemId }: { problemId: string }) {
+export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: string; sampleInput?: string }) {
   const defaultLang = LANGUAGES[0]!;
   const [language, setLanguage] = useState(defaultLang.value);
   const [code, setCode] = useState(defaultLang.starter);
@@ -229,6 +257,7 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [submission, setSubmission] = useState<Submission | null>(null);
+  const [submissionStatus, setSubmissionStatus] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   
   // Tab state: 'editor' or 'custom-input'
@@ -238,14 +267,16 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
   const [runJobId, setRunJobId] = useState<string | null>(null);
   const [runLoading, setRunLoading] = useState(false);
   const [runPolling, setRunPolling] = useState(false);
-  const [runResult, setRunResult] = useState<{ status: string; stdout?: string; stderr?: string; executionTimeMs?: number; exitCode?: number } | null>(null);
+  const [runStatus, setRunStatus] = useState<string | null>(null);
+  const [runResult, setRunResult] = useState<RunResult | null>(null);
   
   // Custom input state (for second tab)
-  const [customInput, setCustomInput] = useState('');
+  const [customInput, setCustomInput] = useState(sampleInput);
   const [customRunJobId, setCustomRunJobId] = useState<string | null>(null);
   const [customRunLoading, setCustomRunLoading] = useState(false);
   const [customRunPolling, setCustomRunPolling] = useState(false);
-  const [customRunResult, setCustomRunResult] = useState<{ status: string; stdout?: string; stderr?: string; executionTimeMs?: number; exitCode?: number } | null>(null);
+  const [customRunStatus, setCustomRunStatus] = useState<string | null>(null);
+  const [customRunResult, setCustomRunResult] = useState<RunResult | null>(null);
 
   // Update starter code when language changes
   const handleLangChange = (lang: string) => {
@@ -271,6 +302,7 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
         const data = await res.json() as { submission?: Submission } | Submission;
         const sub: Submission = (data as { submission?: Submission }).submission ?? (data as Submission);
         setSubmission(sub);
+        setSubmissionStatus(sub.status);
         if (TERMINAL.has(sub.status)) {
           clearInterval(interval);
           setPolling(false);
@@ -289,6 +321,7 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
     setError(null);
     setSubmission(null);
     setSubmissionId(null);
+    setSubmissionStatus(null);
 
     try {
       const token = getToken();
@@ -310,6 +343,7 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
       const sid = data.submissionId ?? data.submission?.id;
       if (!sid) throw new Error("Submission ID missing from response");
       setSubmissionId(sid);
+      setSubmissionStatus("QUEUED");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Submission failed");
     } finally {
@@ -320,16 +354,18 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
   async function handleRun() {
     setRunLoading(true);
     setRunResult(null);
+    setRunStatus(null);
     setError(null);
 
     try {
       const token = getToken();
       if (!token) { setError("You must be logged in."); return; }
 
+      const runInput = sampleInput.trim().length > 0 ? sampleInput : "";
       const res = await fetch("/api/run", {
         method: "POST",
         headers: { "Content-Type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify({ language, code, customInput: '' }),
+        body: JSON.stringify({ language, code, customInput: runInput }),
       });
       const data = await res.json() as { jobId?: string; error?: string };
       if (res.status === 401 || res.status === 403) { window.location.href = "/login"; return; }
@@ -337,6 +373,7 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
       if (!data.jobId) throw new Error("Job ID missing");
 
       setRunJobId(data.jobId);
+      setRunStatus("QUEUED");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Run failed");
       setRunLoading(false);
@@ -346,6 +383,7 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
   async function handleCustomInputRun() {
     setCustomRunLoading(true);
     setCustomRunResult(null);
+    setCustomRunStatus(null);
     setError(null);
 
     try {
@@ -363,6 +401,7 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
       if (!data.jobId) throw new Error("Job ID missing");
 
       setCustomRunJobId(data.jobId);
+      setCustomRunStatus("QUEUED");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Run failed");
       setCustomRunLoading(false);
@@ -382,6 +421,9 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
         });
         const data = await res.json();
         if (res.ok) {
+          if (data.status) {
+            setRunStatus(data.status);
+          }
           if (data.status === 'COMPLETED' || data.status === 'FAILED') {
             setRunResult(data);
             setRunPolling(false);
@@ -409,6 +451,9 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
         });
         const data = await res.json();
         if (res.ok) {
+          if (data.status) {
+            setCustomRunStatus(data.status);
+          }
           if (data.status === 'COMPLETED' || data.status === 'FAILED') {
             setCustomRunResult(data);
             setCustomRunPolling(false);
@@ -537,6 +582,16 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
                           Execution Time: <span style={{ color: "#cbd5e1" }}>{runResult.executionTimeMs}ms</span>
                         </div>
                       )}
+                      {runResult.error && (
+                        <div className="text-xs" style={{ color: "#f43f5e" }}>
+                          {runResult.error}
+                        </div>
+                      )}
+                      {runResult.outputTruncated && (
+                        <div className="text-xs" style={{ color: "#f59e0b" }}>
+                          Output truncated due to size limits.
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -582,6 +637,16 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
                         Execution: {customRunResult.executionTimeMs}ms
                       </div>
                     )}
+                    {customRunResult.error && (
+                      <div className="px-3 py-2 text-xs" style={{ color: "#f43f5e", borderTop: "1px solid #334155" }}>
+                        {customRunResult.error}
+                      </div>
+                    )}
+                    {customRunResult.outputTruncated && (
+                      <div className="px-3 py-2 text-xs" style={{ color: "#f59e0b", borderTop: "1px solid #334155" }}>
+                        Output truncated due to size limits.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -604,60 +669,69 @@ export function ProblemSolver({ problemId }: { problemId: string }) {
 
         {/* Footer: Action Buttons */}
         <div
-          className="shrink-0 px-4 py-3 flex items-center justify-end gap-2"
+          className="shrink-0 px-4 py-3 flex items-center justify-between gap-2"
           style={{ borderTop: "1px solid #1e3058", background: "rgba(0,0,0,0.3)" }}
         >
-          {/* Run Code Button */}
-          <button
-            onClick={activeTab === 'editor' ? handleRun : handleCustomInputRun}
-            disabled={(activeTab === 'editor' ? runLoading || runPolling : customRunLoading || customRunPolling) || !code.trim()}
-            className="forge-btn-primary flex items-center gap-2 text-sm"
-            style={{ padding: "0.45rem 1.25rem" }}
-          >
-            {(activeTab === 'editor' ? runLoading || runPolling : customRunLoading || customRunPolling) ? (
-              <>
-                <svg className="animate-spin-forge" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-                </svg>
-                Running…
-              </>
-            ) : (
-              <>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
-                Run Code
-              </>
+          <div className="flex items-center gap-2">
+            {submissionStatus && <StatusPill label="Submission" status={submissionStatus} />}
+            {activeTab === 'editor' && runStatus && <StatusPill label="Run" status={runStatus} />}
+            {activeTab === 'custom-input' && customRunStatus && (
+              <StatusPill label="Run" status={customRunStatus} />
             )}
-          </button>
-
-          {/* Submit Button (right) */}
-          <form onSubmit={handleSubmit} style={{ display: "inline" }}>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Run Code Button */}
             <button
-              type="submit"
-              disabled={isBusy || !code.trim()}
+              onClick={activeTab === 'editor' ? handleRun : handleCustomInputRun}
+              disabled={(activeTab === 'editor' ? runLoading || runPolling : customRunLoading || customRunPolling) || !code.trim()}
               className="forge-btn-primary flex items-center gap-2 text-sm"
               style={{ padding: "0.45rem 1.25rem" }}
             >
-              {loading ? (
+              {(activeTab === 'editor' ? runLoading || runPolling : customRunLoading || customRunPolling) ? (
                 <>
                   <svg className="animate-spin-forge" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
                   </svg>
-                  Submitting
+                  Running…
                 </>
-              ) : polling ? (
-                "Running…"
               ) : (
                 <>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <polygon points="5 3 19 12 5 21 5 3"/>
                   </svg>
-                  Submit
+                  Run Code
                 </>
               )}
             </button>
-          </form>
+
+            {/* Submit Button (right) */}
+            <form onSubmit={handleSubmit} style={{ display: "inline" }}>
+              <button
+                type="submit"
+                disabled={isBusy || !code.trim()}
+                className="forge-btn-primary flex items-center gap-2 text-sm"
+                style={{ padding: "0.45rem 1.25rem" }}
+              >
+                {loading ? (
+                  <>
+                    <svg className="animate-spin-forge" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                    </svg>
+                    Submitting
+                  </>
+                ) : polling ? (
+                  "Running…"
+                ) : (
+                  <>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    Submit
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     </>

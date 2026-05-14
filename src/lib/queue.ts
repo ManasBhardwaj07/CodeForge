@@ -2,6 +2,7 @@ import { Queue } from "bullmq";
 import { env } from "@/lib/env";
 
 export const SUBMISSION_QUEUE_NAME = "submission-queue";
+export const DEAD_LETTER_QUEUE_NAME = "submission-dead-letter";
 
 export type SubmissionJobData = {
   type: 'submission';
@@ -34,6 +35,7 @@ const queueConnection = {
 
 const globalForQueue = globalThis as unknown as {
   submissionQueue: Queue<JobData> | undefined;
+  deadLetterQueue: Queue<unknown> | undefined;
 };
 
 function createSubmissionQueue() {
@@ -57,6 +59,24 @@ export function getSubmissionQueue() {
   }
 
   return globalForQueue.submissionQueue;
+}
+
+function createDeadLetterQueue() {
+  return new Queue(DEAD_LETTER_QUEUE_NAME, {
+    connection: queueConnection,
+    defaultJobOptions: {
+      removeOnComplete: true,
+      removeOnFail: false,
+    },
+  });
+}
+
+export function getDeadLetterQueue() {
+  if (!globalForQueue.deadLetterQueue) {
+    globalForQueue.deadLetterQueue = createDeadLetterQueue();
+  }
+
+  return globalForQueue.deadLetterQueue;
 }
 
 export async function closeSubmissionQueue() {

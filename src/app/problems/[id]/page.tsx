@@ -53,6 +53,7 @@ export default async function ProblemDetailPage({
 }) {
   const { id } = await params;
   const problem = await getProblem(id);
+  const sampleInput = problem?.testCases?.find((testCase) => testCase.isSample)?.input ?? "";
 
   if (!problem) {
     return (
@@ -172,7 +173,7 @@ export default async function ProblemDetailPage({
         className="flex flex-col overflow-hidden"
         style={{ width: "50%", background: "#080d1a" }}
       >
-        <ProblemSolver problemId={problem.id} />
+        <ProblemSolver problemId={problem.id} sampleInput={sampleInput} />
       </div>
     </div>
   );

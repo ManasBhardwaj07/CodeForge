@@ -203,7 +203,7 @@ async function runPhase3Qa() {
       body: JSON.stringify({
         problemId: firstProblemId,
         code: "print(1)",
-        language: "PYTHON",
+        language: "RUBY",
       }),
     }),
   );

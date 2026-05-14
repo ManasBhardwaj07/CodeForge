@@ -5,7 +5,7 @@ import { getToken } from "@/lib/auth-client";
 
 const STATIC_STATS = [
   { label: "Languages", value: "5" },
-  { label: "Async Queue", value: "BullMQ" },
+  { label: "Async Queue", value: "Queue-backed" },
 ];
 
 const FEATURES = [
@@ -25,7 +25,7 @@ const FEATURES = [
       </svg>
     ),
     title: "Async Evaluation",
-    desc: "Submissions are queued via BullMQ and processed by an isolated worker — no blocking the HTTP thread.",
+    desc: "Submissions are queued through a dedicated async worker and processed in isolation — no blocking the HTTP thread.",
   },
   {
     icon: (

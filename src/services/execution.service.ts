@@ -10,7 +10,7 @@ export type ExecutionLanguage = (typeof SUPPORTED_EXECUTION_LANGUAGES)[number];
 export const MAX_EXECUTION_CODE_LENGTH = 20_000;
 export const MAX_EXECUTION_INPUT_LENGTH = 100_000;
 
-export const DEFAULT_PER_TEST_TIMEOUT_MS = 2_000;
+export const DEFAULT_PER_TEST_TIMEOUT_MS = 8_000;
 export const DEFAULT_GLOBAL_TIMEOUT_MS = 30_000;
 
 export type ExecutionResourceLimits = {
@@ -58,6 +58,14 @@ export type ExecutionOutcome = {
     runContainerId?: string;
     outputTruncated: boolean;
   };
+};
+
+export type CompiledCppArtifact = {
+  workspaceDir: string;
+  normalizedWorkspaceDir: string;
+  compileContainerId?: string;
+  compileOutputTruncated: boolean;
+  compileExecutionTimeMs: number;
 };
 
 export type ExecutionServiceErrorCode =
@@ -776,6 +784,248 @@ async function executeCppInDocker(
     forceRemoveContainer(compileContainerName);
     forceRemoveContainer(runContainerName);
     await rm(workspaceDir, { recursive: true, force: true });
+  }
+}
+
+export async function compileCppInDocker(params: {
+  code: string;
+  policy?: ExecutionPolicyOverrides;
+  context?: ExecutionRequest["context"];
+}): Promise<{ outcome: ExecutionOutcome; artifact?: CompiledCppArtifact }> {
+  await ensureDockerImageAvailable("gcc:13");
+
+  const policy = normalizeExecutionPolicy(params.policy);
+
+  const workspaceDir = await mkdtemp(path.join(tmpdir(), "codeforge-cpp-"));
+  const sourceFilePath = path.join(workspaceDir, "main.cpp");
+  const compileCidFilePath = path.join(workspaceDir, "compile.cid");
+  const compileContainerName = `${makeContainerName({
+    language: "CPP",
+    code: params.code,
+    input: "",
+    context: params.context,
+  })}-compile`;
+  const normalizedWorkspaceDir = normalizeDockerMountPath(workspaceDir);
+  const deadline = Date.now() + Math.min(policy.perTestTimeoutMs, policy.globalTimeoutMs);
+
+  try {
+    await writeFile(sourceFilePath, params.code, "utf8");
+
+    const compileRemainingMs = deadline - Date.now();
+    if (compileRemainingMs <= 0) {
+      return {
+        outcome: {
+          stdout: "",
+          stderr: `Execution timed out after ${Math.min(policy.perTestTimeoutMs, policy.globalTimeoutMs)}ms.`,
+          success: false,
+          executionTimeMs: 0,
+          exitCode: null,
+          timedOut: true,
+          compileError: false,
+          errorType: "TIMEOUT",
+          metadata: {
+            outputTruncated: false,
+          },
+        },
+      };
+    }
+
+    const compileArgs = buildBaseDockerRunArgs({
+      containerName: compileContainerName,
+      workspacePath: normalizedWorkspaceDir,
+      policy,
+      userArg: policy.runAsNonRoot ? "1000:1000" : "0:0",
+      cidFilePath: normalizeDockerMountPath(compileCidFilePath),
+    });
+
+    compileArgs.push(
+      "gcc:13",
+      "sh",
+      "-lc",
+      "g++ -std=c++17 /workspace/main.cpp -O2 -o /workspace/main.out",
+    );
+
+    const compileResult = await runProcess("docker", compileArgs, "", {
+      timeoutMs: compileRemainingMs,
+      onTimeout: () => forceRemoveContainer(compileContainerName),
+    });
+
+    const compileContainerId = await readContainerIdFromCidFile(compileCidFilePath);
+    const compileStderrWithNotes = addOutputTruncationNote(compileResult.stderr, compileResult);
+    const compileOutputTruncated = compileResult.stdoutTruncated || compileResult.stderrTruncated;
+
+    if (compileResult.timedOut) {
+      return {
+        outcome: {
+          stdout: compileResult.stdout,
+          stderr: compileStderrWithNotes,
+          success: false,
+          executionTimeMs: compileResult.executionTimeMs,
+          exitCode: null,
+          timedOut: true,
+          compileError: false,
+          errorType: "TIMEOUT",
+          metadata: {
+            compileContainerId,
+            outputTruncated: compileOutputTruncated,
+          },
+        },
+      };
+    }
+
+    if (compileResult.exitCode === 125) {
+      throw new ExecutionServiceError(
+        `Docker runtime error during compile: ${compileResult.stderr || "docker returned exit code 125"}`,
+        "INFRA_ERROR",
+      );
+    }
+
+    if (compileResult.exitCode !== 0) {
+      return {
+        outcome: {
+          stdout: compileResult.stdout,
+          stderr: compileStderrWithNotes,
+          success: false,
+          executionTimeMs: compileResult.executionTimeMs,
+          exitCode: compileResult.exitCode,
+          timedOut: false,
+          compileError: true,
+          errorType: "COMPILE_ERROR",
+          metadata: {
+            compileContainerId,
+            outputTruncated: compileOutputTruncated,
+          },
+        },
+      };
+    }
+
+    return {
+      outcome: {
+        stdout: compileResult.stdout,
+        stderr: compileStderrWithNotes,
+        success: true,
+        executionTimeMs: compileResult.executionTimeMs,
+        exitCode: compileResult.exitCode,
+        timedOut: false,
+        compileError: false,
+        errorType: null,
+        metadata: {
+          compileContainerId,
+          outputTruncated: compileOutputTruncated,
+        },
+      },
+      artifact: {
+        workspaceDir,
+        normalizedWorkspaceDir,
+        compileContainerId,
+        compileOutputTruncated,
+        compileExecutionTimeMs: compileResult.executionTimeMs,
+      },
+    };
+  } catch {
+    await rm(workspaceDir, { recursive: true, force: true });
+    throw new ExecutionServiceError("Failed to compile C++ submission", "INFRA_ERROR");
+  }
+}
+
+export async function runCompiledCppInDocker(params: {
+  artifact: CompiledCppArtifact;
+  input: string;
+  policy?: ExecutionPolicyOverrides;
+  context?: ExecutionRequest["context"];
+}): Promise<ExecutionOutcome> {
+  const policy = normalizeExecutionPolicy(params.policy);
+  const cidSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const runCidFilePath = path.join(params.artifact.workspaceDir, `run-${cidSuffix}.cid`);
+  const runContainerName = `${makeContainerName({
+    language: "CPP",
+    code: "",
+    input: params.input,
+    context: params.context,
+  })}-run`;
+
+  const deadline = Date.now() + Math.min(policy.perTestTimeoutMs, policy.globalTimeoutMs);
+  const runRemainingMs = deadline - Date.now();
+  if (runRemainingMs <= 0) {
+    return {
+      stdout: "",
+      stderr: `Execution timed out after ${Math.min(policy.perTestTimeoutMs, policy.globalTimeoutMs)}ms.`,
+      success: false,
+      executionTimeMs: 0,
+      exitCode: null,
+      timedOut: true,
+      compileError: false,
+      errorType: "TIMEOUT",
+      metadata: {
+        compileContainerId: params.artifact.compileContainerId,
+        outputTruncated: params.artifact.compileOutputTruncated,
+      },
+    };
+  }
+
+  try {
+    const runArgs = buildBaseDockerRunArgs({
+      containerName: runContainerName,
+      workspacePath: params.artifact.normalizedWorkspaceDir,
+      policy,
+      userArg: policy.runAsNonRoot ? "1000:1000" : "0:0",
+      cidFilePath: normalizeDockerMountPath(runCidFilePath),
+    });
+
+    runArgs.push("gcc:13", "/workspace/main.out");
+
+    const runResult = await runProcess("docker", runArgs, params.input, {
+      timeoutMs: runRemainingMs,
+      onTimeout: () => forceRemoveContainer(runContainerName),
+    });
+
+    const runContainerId = await readContainerIdFromCidFile(runCidFilePath);
+    const runStderrWithNotes = addOutputTruncationNote(runResult.stderr, runResult);
+    const runOutputTruncated = runResult.stdoutTruncated || runResult.stderrTruncated;
+
+    if (runResult.timedOut) {
+      return {
+        stdout: runResult.stdout,
+        stderr: runStderrWithNotes,
+        success: false,
+        executionTimeMs: runResult.executionTimeMs,
+        exitCode: null,
+        timedOut: true,
+        compileError: false,
+        errorType: "TIMEOUT",
+        metadata: {
+          compileContainerId: params.artifact.compileContainerId,
+          runContainerId,
+          outputTruncated: params.artifact.compileOutputTruncated || runOutputTruncated,
+        },
+      };
+    }
+
+    if (runResult.exitCode === 125) {
+      throw new ExecutionServiceError(
+        `Docker runtime error during run: ${runResult.stderr || "docker returned exit code 125"}`,
+        "INFRA_ERROR",
+      );
+    }
+
+    return {
+      stdout: runResult.stdout,
+      stderr: runStderrWithNotes,
+      success: runResult.exitCode === 0,
+      executionTimeMs: runResult.executionTimeMs,
+      exitCode: runResult.exitCode,
+      timedOut: false,
+      compileError: false,
+      errorType: runResult.exitCode === 0 ? null : "RUNTIME_ERROR",
+      metadata: {
+        compileContainerId: params.artifact.compileContainerId,
+        runContainerId,
+        outputTruncated: params.artifact.compileOutputTruncated || runOutputTruncated,
+      },
+    };
+  } finally {
+    forceRemoveContainer(runContainerName);
+    await rm(runCidFilePath, { force: true });
   }
 }
 
