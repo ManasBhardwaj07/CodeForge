@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { setToken } from "@/lib/auth-client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<"username" | "email">("username");
@@ -12,6 +12,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextParam = searchParams.get("next");
+  const safeNext = nextParam && nextParam.startsWith("/") ? nextParam : "/";
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -48,7 +51,7 @@ export default function LoginPage() {
       }
       setToken(data.token);
       window.dispatchEvent(new Event("storage"));
-      router.replace("/");
+      router.replace(safeNext);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {

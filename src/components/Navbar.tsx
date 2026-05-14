@@ -36,6 +36,8 @@ export function Navbar() {
 
   const { isAuthenticated, username } = parseTokenState(token);
 
+  const nextParam = encodeURIComponent(pathname || "/");
+
   const navLinks = [
     { href: "/problems", label: "Problems" },
     { href: "/submissions", label: "Submissions" },
@@ -115,7 +117,7 @@ export function Navbar() {
                 onClick={() => {
                   localStorage.removeItem("token");
                   window.dispatchEvent(new Event("storage"));
-                  window.location.href = "/login";
+                  window.location.href = `/login?next=${nextParam}`;
                 }}
               >
                 Logout
@@ -124,14 +126,14 @@ export function Navbar() {
           ) : (
             <>
               <Link
-                href="/login"
+                href={`/login?next=${nextParam}`}
                 className="text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
                 style={{ color: "#94a3b8" }}
               >
                 Login
               </Link>
               <Link
-                href="/register"
+                href={`/register?next=${nextParam}`}
                 className="forge-btn-primary text-sm"
                 style={{ padding: "0.35rem 1rem" }}
               >

@@ -282,8 +282,37 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
   const handleLangChange = (lang: string) => {
     setLanguage(lang);
     const entry = LANGUAGES.find((l) => l.value === lang);
-    if (entry) setCode(entry.starter);
+    if (entry) {
+      const stored = typeof window === "undefined"
+        ? null
+        : localStorage.getItem(`codeforge:draft:${problemId}:${lang}`);
+      setCode(stored ?? entry.starter);
+    }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem(`codeforge:draft:${problemId}:${language}`);
+    if (stored && stored !== code) {
+      setCode(stored);
+    }
+    const storedInput = localStorage.getItem(`codeforge:input:${problemId}`);
+    if (storedInput != null) {
+      setCustomInput(storedInput);
+    } else if (sampleInput && sampleInput !== customInput) {
+      setCustomInput(sampleInput);
+    }
+  }, [problemId, language, sampleInput]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(`codeforge:draft:${problemId}:${language}`, code);
+  }, [problemId, language, code]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(`codeforge:input:${problemId}`, customInput);
+  }, [problemId, customInput]);
 
   useEffect(() => {
     if (!submissionId) return;
@@ -325,7 +354,10 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
 
     try {
       const token = getToken();
-      if (!token) { setError("You must be logged in."); return; }
+      if (!token) {
+        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
 
       const res = await fetch("/api/submit", {
         method: "POST",
@@ -337,7 +369,10 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
         submission?: { id: string };
         error?: string;
       };
-      if (res.status === 401 || res.status === 403) { window.location.href = "/login"; return; }
+      if (res.status === 401 || res.status === 403) {
+        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
       if (!res.ok) throw new Error(data.error ?? "Submission failed");
 
       const sid = data.submissionId ?? data.submission?.id;
@@ -359,7 +394,10 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
 
     try {
       const token = getToken();
-      if (!token) { setError("You must be logged in."); return; }
+      if (!token) {
+        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
 
       const runInput = sampleInput.trim().length > 0 ? sampleInput : "";
       const res = await fetch("/api/run", {
@@ -368,7 +406,10 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
         body: JSON.stringify({ language, code, customInput: runInput }),
       });
       const data = await res.json() as { jobId?: string; error?: string };
-      if (res.status === 401 || res.status === 403) { window.location.href = "/login"; return; }
+      if (res.status === 401 || res.status === 403) {
+        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
       if (!res.ok) throw new Error(data.error ?? "Run failed");
       if (!data.jobId) throw new Error("Job ID missing");
 
@@ -388,7 +429,10 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
 
     try {
       const token = getToken();
-      if (!token) { setError("You must be logged in."); return; }
+      if (!token) {
+        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
 
       const res = await fetch("/api/run", {
         method: "POST",
@@ -396,7 +440,10 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
         body: JSON.stringify({ language, code, customInput }),
       });
       const data = await res.json() as { jobId?: string; error?: string };
-      if (res.status === 401 || res.status === 403) { window.location.href = "/login"; return; }
+      if (res.status === 401 || res.status === 403) {
+        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
       if (!res.ok) throw new Error(data.error ?? "Run failed");
       if (!data.jobId) throw new Error("Job ID missing");
 

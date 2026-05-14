@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
@@ -11,6 +11,9 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextParam = searchParams.get("next");
+  const safeNext = nextParam && nextParam.startsWith("/") ? nextParam : "/";
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
@@ -41,7 +44,7 @@ export default function RegisterPage() {
         setError(data.error ?? "Registration failed");
         return;
       }
-      router.replace("/login");
+      router.replace(`/login?next=${encodeURIComponent(safeNext)}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
