@@ -1,45 +1,123 @@
 # CodeForge
 
-CodeForge is a full-stack asynchronous code execution platform designed to demonstrate real-world backend engineering, safe execution of untrusted workloads, and end-to-end system design.
+CodeForge is a full-stack asynchronous code execution platform built to simulate production-grade online judge infrastructure using Docker sandboxing, Redis/BullMQ workers, deterministic verdict aggregation, and PostgreSQL-backed execution lifecycle tracking.
 
-The project is built phase-by-phase with strict validation gates, ensuring each layer (data, auth, async processing, execution, evaluation, frontend) is independently correct and defensible.
+The system focuses on safe execution of untrusted workloads, asynchronous processing, execution isolation, and end-to-end backend architecture.
+
+The project is developed phase-by-phase with strict validation gates, ensuring each layer (data, auth, async processing, execution, evaluation, frontend) is independently correct, testable, and defensible.
+
+---
+
+## Why CodeForge?
+
+Most coding platform clones focus primarily on UI and problem rendering.
+
+CodeForge focuses on the backend infrastructure and execution pipeline required to safely execute untrusted workloads using asynchronous processing, isolated execution environments, deterministic evaluation, and queue-driven system design.
 
 ---
 
 ## Core Objective
 
-Build a production-style system with the following flow:
+Build a production-style execution system with the following flow:
 
 1. User submits code
 2. API validates and persists submission
 3. Submission is enqueued (Redis + BullMQ)
-4. Worker executes code in an isolated Docker sandbox
+4. Worker executes code inside an isolated Docker sandbox
 5. Results are stored in PostgreSQL
 6. Verdict is computed deterministically
-7. Frontend displays real-time status and results
+7. Frontend displays execution status and results
+
+---
+
+## System Flow
+
+```text
+Client
+   ↓
+Next.js API Layer
+   ↓
+PostgreSQL (Persistence)
+   ↓
+Redis Queue (BullMQ)
+   ↓
+Worker Process
+   ↓
+Docker Sandbox Execution
+   ↓
+Verdict Aggregation
+   ↓
+Frontend Status & Results
+```
 
 ---
 
 ## Tech Stack
 
-* **Frontend:** Next.js (App Router), TypeScript, Tailwind CSS
-* **Backend:** Node.js, Next.js API routes
-* **Database:** PostgreSQL + Prisma ORM
-* **Queue:** Redis + BullMQ
-* **Execution Engine:** Docker (isolated sandbox with resource limits)
-* **Auth:** JWT (secure, stateless authentication)
+### Frontend
+- Next.js (App Router)
+- TypeScript
+- Tailwind CSS
+
+### Backend
+- Node.js
+- Next.js API Routes
+
+### Infrastructure & Processing
+- Redis
+- BullMQ
+- Docker
+
+### Database
+- PostgreSQL
+- Prisma ORM
+
+### Authentication
+- JWT (stateless authentication)
 
 ---
 
 ## Implemented Phases
 
-* **Phase 1:** Project foundation (strict TypeScript, structure, infra setup)
-* **Phase 2:** Relational data model with constraints, migrations, and QA
-* **Phase 3:** JWT authentication, protected routes, submission API
-* **Phase 4:** Async queue system (BullMQ + worker lifecycle)
-* **Phase 5:** Docker-based sandbox execution (JS + C++, timeout, isolation)
-* **Phase 6:** Deterministic verdict aggregation and submission stats
-* **Phase 7:** Minimal but complete frontend (submission flow, polling, history)
+### Phase 1 — Foundation
+- Strict TypeScript setup
+- Project structure
+- Infrastructure configuration
+
+### Phase 2 — Relational Data Modeling
+- PostgreSQL schema design
+- Prisma migrations
+- Foreign key constraints
+- QA validation
+
+### Phase 3 — Authentication & Submission APIs
+- JWT authentication
+- Protected routes
+- Submission validation pipeline
+
+### Phase 4 — Queue-Driven Execution System
+- BullMQ integration
+- Redis-backed queue lifecycle
+- Worker architecture
+
+### Phase 5 — Docker Sandbox Execution
+- Isolated container execution
+- JavaScript runtime support
+- C++ compile + execution pipeline
+- Timeout enforcement
+- Resource isolation & cleanup
+
+### Phase 6 — Deterministic Verdict Aggregation
+- Verdict priority system
+- Execution result aggregation
+- Submission statistics tracking
+
+### Phase 7 — Frontend Integration
+- Problem browsing
+- Code submission interface
+- Real-time polling
+- Submission history
+- Per-test execution visualization
 
 ---
 
@@ -50,7 +128,7 @@ src/
   app/           # Next.js pages and API routes
   components/    # UI components
   lib/           # Infrastructure (env, prisma, redis, auth)
-  services/      # Business logic (auth, submission, execution, evaluation)
+  services/      # Business logic
   worker/        # BullMQ worker process
   types/         # Shared TypeScript types
 
@@ -64,103 +142,110 @@ prisma/
 
 ## Core Data Model
 
-Entities:
+### Entities
+- User
+- Problem
+- TestCase
+- Submission
+- ExecutionResult
 
-* User
-* Problem
-* TestCase
-* Submission
-* ExecutionResult
+### Key Design Decisions
+- Strong foreign key enforcement
+- Deterministic submission lifecycle
+- Per-test execution tracking
+- Snapshot-based storage (`input`, `expected`, `actual`)
+- Strict verdict aggregation logic
 
-Key decisions:
+### Submission Lifecycle
 
-* Strong foreign keys for integrity
-* Submission lifecycle: `QUEUED → RUNNING → COMPLETED → FAILED`
-* Per-test execution results for reproducibility
-* Snapshot-based storage (`input`, `expected`, `actual`)
-* Deterministic verdict aggregation
-
----
-
-## Execution System (Phase 5)
-
-* Code runs inside **Docker containers**, not the host
-* Isolation includes:
-
-  * no network access
-  * memory/CPU limits
-  * read-only filesystem
-  * non-root user
-* Supports:
-
-  * JavaScript (Node)
-  * C++ (compile + run separation)
-* Enforces:
-
-  * per-test timeout
-  * global execution safety
-* Ensures:
-
-  * cleanup of containers and temp files
+```text
+QUEUED → RUNNING → COMPLETED → FAILED
+```
 
 ---
 
-## Verdict System (Phase 6)
+## Execution System
 
-Final submission verdict is derived from test results using strict priority:
+Code execution never runs directly on the host machine.
+
+Each submission is executed inside an isolated Docker container with strict resource controls.
+
+### Isolation Features
+- No network access
+- Memory & CPU limits
+- Read-only filesystem
+- Non-root execution user
+
+### Supported Languages
+- JavaScript (Node.js)
+- C++ (compile + run separation)
+
+### Safety Guarantees
+- Per-test timeout enforcement
+- Global execution safety
+- Temporary file cleanup
+- Container cleanup after execution
+
+---
+
+## Verdict System
+
+Final submission verdicts are derived using strict deterministic priority ordering:
 
 ```text
 COMPILE_ERROR > TIMEOUT > RUNTIME_ERROR > WRONG_ANSWER > ACCEPTED
 ```
 
 Each submission stores:
-
-* verdict
-* total tests
-* passed tests
-* failed tests
+- final verdict
+- total tests
+- passed tests
+- failed tests
 
 ---
 
-## Frontend (Phase 7)
+## Frontend Features
 
-Minimal, functional, and system-focused UI:
+Minimal, functional, and system-focused UI.
 
-* Problem browsing
-* Code submission interface
-* Real-time polling for execution status
-* Per-test result visualization
-* Submission history
-* JWT-based authentication
+### Features
+- Problem browsing
+- Code editor & submission flow
+- Real-time execution polling
+- Per-test result visualization
+- Submission history
+- JWT-based authentication
 
-Key features:
-
-* Polling with cleanup and resume support
-* State persistence via localStorage
-* Output truncation for large responses
-* Clear loading, error, and empty states
+### UX Considerations
+- Polling cleanup & resume support
+- localStorage state persistence
+- Output truncation for large responses
+- Clear loading/error/empty states
 
 ---
 
 ## Setup
 
-### 1. Clone and Install
+### 1. Clone Repository
 
 ```bash
-git clone https://github.com/ManasBhardwaj07/Codeforge.git
-cd codeforge
+git clone https://github.com/ManasBhardwaj07/CodeForge.git
+cd CodeForge
+```
+
+### 2. Install Dependencies
+
+```bash
 npm install
 ```
 
----
+### 3. Configure Environment
 
-### 2. Configure Environment
-
-Create `.env` based on `.env.example`
+Create `.env` using `.env.example`
 
 ---
 
-### 3. Run Database
+## Database Setup
 
 ```bash
 npm run db:migrate
@@ -170,16 +255,23 @@ npm run db:seed
 
 ---
 
-### 4. Start Services
+## Start Services
+
+### Development Server
 
 ```bash
-npm run dev       # frontend + API
-npm run worker    # background worker (separate terminal)
+npm run dev
+```
+
+### Worker Process
+
+```bash
+npm run worker
 ```
 
 ---
 
-### 5. Run QA Checks
+## QA Validation
 
 ```bash
 npm run qa:phase2
@@ -191,81 +283,106 @@ npm run qa:phase6
 
 ---
 
-## Scripts
+## Available Scripts
 
-* `npm run dev` — start development server
-* `npm run build` — production build
-* `npm run lint` — lint checks
-* `npm run typecheck` — strict TypeScript validation
-* `npm run check` — lint + typecheck + build
+### Core
+
+```bash
+npm run dev
+npm run build
+npm run lint
+npm run typecheck
+npm run check
+```
 
 ### Database
 
-* `npm run db:migrate`
-* `npm run db:generate`
-* `npm run db:seed`
-
-### QA
-
-* `npm run qa:phase2`
-* `npm run qa:phase3`
-* `npm run qa:phase4`
-* `npm run qa:phase5`
-* `npm run qa:phase6`
+```bash
+npm run db:migrate
+npm run db:generate
+npm run db:seed
+```
 
 ### Worker
 
-* `npm run worker`
+```bash
+npm run worker
+```
 
 ---
 
 ## QA Coverage
 
-Each phase includes automated validation:
+Each phase includes dedicated validation checks.
 
-* **Phase 2:** relational integrity, FK enforcement
-* **Phase 3:** auth flow, protected routes, validation
-* **Phase 4:** queue lifecycle, async behavior
-* **Phase 5:** sandbox execution, timeout, cleanup
-* **Phase 6:** verdict correctness and aggregation
+### Phase 2
+- Relational integrity
+- Foreign key enforcement
+
+### Phase 3
+- Authentication flows
+- Route protection
+- Validation checks
+
+### Phase 4
+- Queue lifecycle validation
+- Async processing behavior
+
+### Phase 5
+- Docker sandbox execution
+- Timeout handling
+- Cleanup guarantees
+
+### Phase 6
+- Verdict correctness
+- Aggregation logic validation
 
 ---
 
 ## Security Practices
 
-* `.env` is ignored
-* `.env.example` provided
-* No hardcoded secrets
-* Containerized execution for untrusted code
-* Resource limits enforced
+- `.env` ignored from version control
+- `.env.example` included
+- No hardcoded secrets
+- Containerized execution for untrusted code
+- Resource limits enforced during execution
 
 ---
 
-## Development Approach
+## Development Philosophy
 
-* Strict phase-based development
-* Each phase requires measurable acceptance criteria
-* QA-driven validation before progression
-* Clear separation of concerns across layers
+- Strict phase-based implementation
+- Measurable acceptance criteria
+- QA-driven progression
+- Clear separation of concerns
+- Infrastructure-first system design
 
 ---
 
 ## Roadmap
 
-* Phase 8: Production hardening (Dockerization, deployment, rate limiting, recovery)
-* Future: observability, scaling, execution optimizations
+### Phase 8 — Production Hardening
+- Full Docker Compose setup
+- Deployment pipeline
+- Rate limiting
+- Failure recovery improvements
+
+### Future Improvements
+- Observability & monitoring
+- Execution optimization
+- Scaling strategies
+- Multi-language execution support
 
 ---
 
 ## Summary
 
-CodeForge is a project.
-that demonstrates:
+CodeForge demonstrates:
 
-* asynchronous system design
-* safe execution of untrusted workloads
-* relational modeling
-* deterministic evaluation logic
-* full-stack integration
-
----
+- asynchronous backend architecture
+- queue-driven execution systems
+- safe execution of untrusted workloads
+- Docker-based sandbox isolation
+- deterministic evaluation pipelines
+- relational data modeling
+- full-stack system integration
