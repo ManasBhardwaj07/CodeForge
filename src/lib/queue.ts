@@ -4,11 +4,22 @@ import { env } from "@/lib/env";
 export const SUBMISSION_QUEUE_NAME = "submission-queue";
 export const DEAD_LETTER_QUEUE_NAME = "submission-dead-letter";
 
+export type ReplayMetadata = {
+  dlqId: string;
+  replayAttempt: number;
+  replayedAt: string;
+  replayedBy: {
+    userId: string;
+    email: string;
+  };
+};
+
 export type SubmissionJobData = {
   type: 'submission';
   submissionId: string;
   language: string;
   requestId?: string;
+  replay?: ReplayMetadata;
 };
 
 export type RunJobData = {
@@ -18,6 +29,7 @@ export type RunJobData = {
   language: string;
   code: string;
   customInput: string;
+  replay?: ReplayMetadata;
 };
 
 export type JobData = SubmissionJobData | RunJobData;

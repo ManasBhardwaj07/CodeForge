@@ -1,5 +1,6 @@
 import { requireAuth, AuthorizationError } from "@/lib/auth";
 import { getDeadLetterQueue } from "@/lib/queue";
+import { asDlqEnvelope, asOriginalJobData } from "@/lib/dlq";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
@@ -21,24 +22,27 @@ export async function GET(request: NextRequest) {
     const end = start + limit - 1;
 
     const queue = getDeadLetterQueue();
-    const total = await queue.getJobCounts("failed");
-    const jobs = await queue.getJobs(["failed"], start, end, true);
+    const total = await queue.getJobCounts("waiting");
+    const jobs = await queue.getJobs(["waiting"], start, end, true);
 
     return NextResponse.json({
       page,
       limit,
-      total: total.failed ?? 0,
+      total: total.waiting ?? 0,
       jobs: jobs.map((job) => ({
-        id: job.id,
-        name: job.name,
-        data: job.data,
-        failedReason: job.failedReason,
-        failureCategory: (job.data as { failureCategory?: string } | undefined)?.failureCategory ?? null,
-        attemptsMade: job.attemptsMade,
-        timestamp: job.timestamp,
-        processedOn: job.processedOn,
-        finishedOn: job.finishedOn,
-        stacktrace: job.stacktrace,
+        id: job.id, // DLQ entry id
+        status: "FAILED",
+        jobId: asDlqEnvelope(job.data).jobId ?? null, // original queue job id
+        jobName: asDlqEnvelope(job.data).jobName ?? null,
+        requestId: asOriginalJobData(asDlqEnvelope(job.data).data).requestId ?? null,
+        failureCategory: asDlqEnvelope(job.data).failureCategory ?? null,
+        failedReason: asDlqEnvelope(job.data).failedReason ?? job.failedReason ?? null,
+        retryCount: asDlqEnvelope(job.data).attemptsMade ?? job.attemptsMade ?? 0,
+        failedAt: job.timestamp ? new Date(job.timestamp).toISOString() : null,
+        language: asOriginalJobData(asDlqEnvelope(job.data).data).language ?? null,
+        replayedAt: asDlqEnvelope(job.data).replayedAt ?? null,
+        replayedBy: asDlqEnvelope(job.data).replayedBy ?? null,
+        replayAttempt: asDlqEnvelope(job.data).replayAttempt ?? null,
       })),
     });
   } catch (error) {

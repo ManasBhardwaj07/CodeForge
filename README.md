@@ -207,6 +207,14 @@ CodeForge exposes lightweight, operational metrics for queue health and tracing.
 - List/requeue/delete failed jobs
 - Failure categories: `INFRA_FAILURE`, `EXECUTION_TIMEOUT`, `SANDBOX_ERROR`, `REDIS_ERROR`, `COMPILATION_ERROR`
 
+### Worker Heartbeat
+
+To answer "is execution actually alive?" (not just "are jobs sitting in Redis?"), the worker publishes an ephemeral heartbeat into Redis.
+
+- Key pattern: `codeforge:worker-heartbeat:<workerId>`
+- TTL-based: if the key expires, the worker is considered offline
+- Exposed via `GET /api/queue/health` under the `workers` field
+
 ---
 
 ## Verdict System

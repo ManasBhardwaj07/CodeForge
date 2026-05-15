@@ -1,4 +1,4 @@
-import { requireAuth, AuthorizationError } from "@/lib/auth";
+import { AuthorizationError, requireAuth } from "@/lib/auth";
 import { asDlqEnvelope, asOriginalJobData, isReplayAllowed } from "@/lib/dlq";
 import { getDeadLetterQueue, getSubmissionQueue } from "@/lib/queue";
 import type { JobData, ReplayMetadata } from "@/lib/queue";
@@ -67,6 +67,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const url = new URL(request.url);
     const allowSandbox = url.searchParams.get("allowSandbox") === "true";
+
     const envelope = asDlqEnvelope(dlqJob.data);
     const category = envelope.failureCategory ?? null;
     const replayDecision = isReplayAllowed(category ? String(category) : null, { allowSandbox });
@@ -84,9 +85,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const originalJobData = envelope.data;
     const original = asOriginalJobData(originalJobData);
+
     const replayAttempt = (envelope.replayAttempt ?? 0) + 1;
     const replayedAt = new Date().toISOString();
 
+    // Update DLQ job with audit metadata (kept for inspection)
     await dlqJob.updateData({
       ...envelope,
       replayedAt,
@@ -94,6 +97,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       replayedBy: { userId: user.userId, email: user.email },
     });
 
+    // Re-enqueue original job into the submission queue with a new jobId
     const submissionQueue = getSubmissionQueue();
     const originalJobName = envelope.jobName ?? "process-submission";
     const originalQueueJobId = envelope.jobId ?? `unknown-${id}`;
@@ -137,34 +141,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     });
   } catch (error) {
     console.error("DLQ requeue error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
-}
-
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    try {
-      await requireAuth(request);
-    } catch (error) {
-      if (error instanceof AuthorizationError) {
-        return NextResponse.json({ error: error.message }, { status: error.statusCode });
-      }
-
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { id } = await params;
-    const job = await getDeadLetterQueue().getJob(id);
-
-    if (!job) {
-      return NextResponse.json({ error: "DLQ job not found" }, { status: 404 });
-    }
-
-    await job.remove();
-
-    return NextResponse.json({ status: "deleted", dlqId: id });
-  } catch (error) {
-    console.error("DLQ delete error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

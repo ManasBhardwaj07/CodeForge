@@ -1,4 +1,6 @@
 import { rm } from "node:fs/promises";
+import crypto from "node:crypto";
+import os from "node:os";
 import { Worker } from "bullmq";
 import { SubmissionStatus } from "../../generated/prisma/index.js";
 import {
@@ -8,6 +10,7 @@ import {
   type JobData,
   type RunJobData,
 } from "../lib/queue.js";
+import { redis } from "../lib/redis.js";
 import { prisma } from "../lib/prisma";
 import {
   DEFAULT_GLOBAL_TIMEOUT_MS,
@@ -22,6 +25,78 @@ import { evaluateSubmission } from "../services/evaluation.service";
 const STALE_RUNNING_TIMEOUT_MS = 5 * 60 * 1000;
 const STALE_RECOVERY_INTERVAL_MS = 60 * 1000;
 const WORKER_PER_TEST_TIMEOUT_MS = Math.max(DEFAULT_PER_TEST_TIMEOUT_MS, 15000);
+
+const HEARTBEAT_INTERVAL_MS = Number.parseInt(
+  process.env.CODEFORGE_WORKER_HEARTBEAT_INTERVAL_MS ?? "10000",
+  10,
+);
+const HEARTBEAT_TTL_MS = Number.parseInt(process.env.CODEFORGE_WORKER_HEARTBEAT_TTL_MS ?? "30000", 10);
+
+const workerId =
+  process.env.CODEFORGE_WORKER_ID ??
+  `${os.hostname()}-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
+
+const heartbeatKey = `codeforge:worker-heartbeat:${workerId}`;
+let workerStatus: "starting" | "healthy" | "shutting_down" = "starting";
+let activeJobs = 0;
+let lastHeartbeatAt: string | null = null;
+
+let redisConnectInFlight: Promise<void> | null = null;
+
+async function ensureRedisConnected() {
+  if (redis.status === "ready") {
+    return;
+  }
+
+  if (redisConnectInFlight) {
+    await redisConnectInFlight;
+    return;
+  }
+
+  redisConnectInFlight = redis
+    .connect()
+    .then(() => undefined)
+    .catch(() => undefined)
+    .finally(() => {
+      redisConnectInFlight = null;
+    });
+
+  await redisConnectInFlight;
+}
+
+async function publishHeartbeat() {
+  const now = new Date().toISOString();
+  const ttlSeconds = Math.max(1, Math.ceil(HEARTBEAT_TTL_MS / 1000));
+
+  const payload = {
+    workerId,
+    lastHeartbeat: now,
+    activeJobs,
+    status: workerStatus,
+  };
+
+  try {
+    await ensureRedisConnected();
+    await redis.set(heartbeatKey, JSON.stringify(payload), "EX", ttlSeconds);
+    lastHeartbeatAt = now;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    // If we raced Redis connection (lazyConnect + offlineQueue=false), retry once.
+    if (message.toLowerCase().includes("stream isn't writeable")) {
+      try {
+        await ensureRedisConnected();
+        await redis.set(heartbeatKey, JSON.stringify(payload), "EX", ttlSeconds);
+        lastHeartbeatAt = now;
+        return;
+      } catch {
+        // fall through
+      }
+    }
+
+    logEvent("warn", "Failed to publish worker heartbeat", { workerId, error: message });
+  }
+}
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -543,6 +618,14 @@ const worker = new Worker<JobData>(
   },
 );
 
+worker.on("active", () => {
+  activeJobs += 1;
+});
+
+worker.on("completed", () => {
+  activeJobs = Math.max(0, activeJobs - 1);
+});
+
 void recoverStaleRunningSubmissions();
 
 const staleRecoveryTimer = setInterval(() => {
@@ -553,9 +636,12 @@ staleRecoveryTimer.unref();
 
 worker.on("ready", () => {
   logEvent("info", "Submission worker is ready");
+  workerStatus = "healthy";
+  void publishHeartbeat();
 });
 
 worker.on("failed", async (job, error) => {
+  activeJobs = Math.max(0, activeJobs - 1);
   if (!job) {
     logEvent("error", "Failed job with no data", { error: error.message });
     return;
@@ -624,10 +710,35 @@ worker.on("error", (error) => {
   logEvent("error", "Worker runtime error", { error: error.message });
 });
 
+const heartbeatTimer = setInterval(() => {
+  void publishHeartbeat();
+}, Math.max(1000, Number.isFinite(HEARTBEAT_INTERVAL_MS) ? HEARTBEAT_INTERVAL_MS : 10000));
+
+heartbeatTimer.unref();
+
 async function shutdown() {
+  workerStatus = "shutting_down";
+  try {
+    await redis.set(
+      heartbeatKey,
+      JSON.stringify({
+        workerId,
+        lastHeartbeat: lastHeartbeatAt ?? new Date().toISOString(),
+        activeJobs,
+        status: workerStatus,
+      }),
+      "EX",
+      5,
+    );
+  } catch {
+    // ignore
+  }
+
+  clearInterval(heartbeatTimer);
   clearInterval(staleRecoveryTimer);
   await worker.close();
   await prisma.$disconnect();
+  await redis.quit().catch(() => undefined);
   process.exit(0);
 }
 
