@@ -1,5 +1,6 @@
 import { AuthorizationError, requireAuth } from '@/lib/auth';
 import { getSubmissionQueue } from '@/lib/queue';
+import { resolveRequestId } from '@/lib/request-id';
 import { NextRequest, NextResponse } from 'next/server';
 
 const SUPPORTED_LANGUAGES = ['JAVASCRIPT', 'CPP', 'PYTHON', 'JAVA', 'C'];
@@ -18,6 +19,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { language, code, customInput } = await req.json();
+    const requestId = resolveRequestId(req.headers);
 
     if (!language || !code || customInput === undefined) {
       return NextResponse.json(
@@ -58,6 +60,7 @@ export async function POST(req: NextRequest) {
         {
           type: 'run',
           jobId,
+          requestId,
           language,
           code,
           customInput,
@@ -81,10 +84,11 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json(
         {
+          requestId,
           jobId: job.id,
           status: 'QUEUED',
         },
-        { status: 202 }
+        { status: 202, headers: { 'x-request-id': requestId } }
       );
     } catch (queueError) {
       console.error('Queue error:', queueError);

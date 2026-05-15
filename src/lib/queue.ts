@@ -7,11 +7,14 @@ export const DEAD_LETTER_QUEUE_NAME = "submission-dead-letter";
 export type SubmissionJobData = {
   type: 'submission';
   submissionId: string;
+  language: string;
+  requestId?: string;
 };
 
 export type RunJobData = {
   type: 'run';
   jobId: string;
+  requestId?: string;
   language: string;
   code: string;
   customInput: string;

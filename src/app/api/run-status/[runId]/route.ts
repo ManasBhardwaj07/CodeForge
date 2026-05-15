@@ -34,6 +34,7 @@ export async function GET(
       const result = job.returnvalue;
       return NextResponse.json(
         {
+          requestId: job.data?.requestId ?? null,
           jobId: job.id,
           status: 'COMPLETED',
           ...result, // { stdout, stderr, exitCode, executionTimeMs, errorType }
@@ -45,6 +46,7 @@ export async function GET(
     if (state === 'failed') {
       return NextResponse.json(
         {
+          requestId: job.data?.requestId ?? null,
           jobId: job.id,
           status: 'FAILED',
           error: job.failedReason || 'Execution failed',
@@ -56,6 +58,7 @@ export async function GET(
     // Still queued or running
     return NextResponse.json(
       {
+        requestId: job.data?.requestId ?? null,
         jobId: job.id,
         status: state === 'active' ? 'RUNNING' : 'QUEUED',
       },

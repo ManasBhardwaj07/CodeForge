@@ -1,5 +1,6 @@
 import { AuthorizationError, requireAuth } from "@/lib/auth";
 import { errorResponse } from "@/lib/http";
+import { resolveRequestId } from "@/lib/request-id";
 import { createQueuedSubmission, SubmissionServiceError } from "@/services/submission.service";
 
 const SUPPORTED_LANGUAGES = ["CPP", "JAVASCRIPT", "PYTHON", "JAVA", "C"];
@@ -48,15 +49,18 @@ export async function POST(request: Request) {
   }
 
   try {
+    const requestId = resolveRequestId(request.headers);
     const submission = await createQueuedSubmission({
       userId: user.userId,
       problemId: payload.problemId,
       code: payload.code,
       language: payload.language.toUpperCase(),
+      requestId,
     });
 
     return Response.json(
       {
+        requestId,
         // Legacy field for frontend compatibility
         submissionId: submission.id,
         // Structured field for QA compatibility
@@ -66,7 +70,7 @@ export async function POST(request: Request) {
           userId: submission.userId,
         },
       },
-      { status: 201 }
+      { status: 201, headers: { "x-request-id": requestId } }
     );
   } catch (error) {
     if (error instanceof SubmissionServiceError) {

@@ -51,6 +51,28 @@ function isFinalAttempt(attemptsMade: number, attempts: number | undefined) {
   return attemptsMade >= total;
 }
 
+function categorizeFailure(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("timeout") || normalized.includes("timed out")) {
+    return "EXECUTION_TIMEOUT";
+  }
+
+  if (normalized.includes("compile") || normalized.includes("compilation")) {
+    return "COMPILATION_ERROR";
+  }
+
+  if (normalized.includes("sandbox") || normalized.includes("docker") || normalized.includes("container")) {
+    return "SANDBOX_ERROR";
+  }
+
+  if (normalized.includes("redis")) {
+    return "REDIS_ERROR";
+  }
+
+  return "INFRA_FAILURE";
+}
+
 async function recoverStaleRunningSubmissions() {
   const cutoff = new Date(Date.now() - STALE_RUNNING_TIMEOUT_MS);
 
@@ -114,7 +136,7 @@ async function createExecutionResultRecord(params: {
   });
 }
 
-async function executeSubmission(submissionId: string) {
+async function executeSubmission(submissionId: string, requestId?: string | null) {
   const submission = await prisma.submission.findUnique({
     where: {
       id: submissionId,
@@ -335,6 +357,7 @@ async function executeSubmission(submissionId: string) {
 
       logEvent("info", "Execution metadata", {
         submissionId,
+        requestId: requestId ?? null,
         testCaseId: testCase.id,
         errorType: outcome.errorType ?? "NONE",
         durationMs: outcome.executionTimeMs,
@@ -403,7 +426,7 @@ async function executeSubmission(submissionId: string) {
   }
 }
 
-async function handleRunJob(language: string, code: string, customInput: string) {
+async function handleRunJob(language: string, code: string, customInput: string, requestId?: string | null) {
   // Execute code with custom input
   // Result is STORED IN JOB RETURN VALUE (ephemeral, no DB)
   const runPolicy = {
@@ -420,6 +443,7 @@ async function handleRunJob(language: string, code: string, customInput: string)
 
   logEvent("info", "Run execution completed", {
     language,
+    requestId: requestId ?? null,
     success: outcome.success,
     errorType: outcome.errorType ?? "NONE",
     durationMs: outcome.executionTimeMs,
@@ -437,11 +461,11 @@ async function handleRunJob(language: string, code: string, customInput: string)
   };
 }
 
-async function handleSubmissionJob(submissionId: string) {
+async function handleSubmissionJob(submissionId: string, requestId?: string | null) {
   // Execute submission with all test cases
   // Result is PERSISTED TO DATABASE (official verdict)
 
-  await executeSubmission(submissionId);
+  await executeSubmission(submissionId, requestId);
   const evaluation = await evaluateSubmission(submissionId);
 
   const completed = await prisma.submission.updateMany({
@@ -464,7 +488,7 @@ async function handleSubmissionJob(submissionId: string) {
     throw new Error(`Submission ${submissionId} is not RUNNING when completing`);
   }
 
-  logEvent("info", "Submission completed", { submissionId });
+  logEvent("info", "Submission completed", { submissionId, requestId: requestId ?? null });
 }
 
 const worker = new Worker<JobData>(
@@ -476,7 +500,7 @@ const worker = new Worker<JobData>(
     if (data.type === 'submission') {
       // Submission job: persist results
       const submissionId = data.submissionId;
-      logEvent("info", "Processing submission", { submissionId, jobId: job.id });
+      logEvent("info", "Processing submission", { submissionId, jobId: job.id, requestId: data.requestId ?? null });
 
       const started = await prisma.submission.updateMany({
         where: {
@@ -499,13 +523,13 @@ const worker = new Worker<JobData>(
         throw new Error(`Submission ${submissionId} is not QUEUED or does not exist`);
       }
 
-      await handleSubmissionJob(submissionId);
+      await handleSubmissionJob(submissionId, data.requestId ?? null);
     } else if (data.type === 'run') {
       // Run job: return ephemeral result
       const runData = data as RunJobData;
-      logEvent("info", "Processing run", { jobId: runData.jobId });
+      logEvent("info", "Processing run", { jobId: runData.jobId, requestId: runData.requestId ?? null });
 
-      const result = await handleRunJob(runData.language, runData.code, runData.customInput);
+      const result = await handleRunJob(runData.language, runData.code, runData.customInput, runData.requestId ?? null);
       
       // Return result (stored in job.returnValue by Bull)
       return result;
@@ -541,6 +565,7 @@ worker.on("failed", async (job, error) => {
   const attemptsMade = job.attemptsMade ?? 0;
   const attempts = job.opts.attempts ?? 1;
   const finalAttempt = isFinalAttempt(attemptsMade, attempts);
+  const failureCategory = categorizeFailure(error.message);
 
   if (data.type === 'submission') {
     // Only fail submission if it's still QUEUED or RUNNING
@@ -570,6 +595,8 @@ worker.on("failed", async (job, error) => {
     attempts,
     finalAttempt,
     error: error.message,
+    requestId: data?.requestId ?? null,
+    failureCategory,
   });
 
   if (finalAttempt) {
@@ -581,6 +608,7 @@ worker.on("failed", async (job, error) => {
         jobName: job.name,
         data: job.data,
         failedReason: error.message,
+        failureCategory,
         attemptsMade,
         timestamp: new Date().toISOString(),
       },

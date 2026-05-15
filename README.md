@@ -188,6 +188,27 @@ Each submission is executed inside an isolated Docker container with strict reso
 
 ---
 
+## Queue Observability
+
+CodeForge exposes lightweight, operational metrics for queue health and tracing.
+
+### Tracing Identifiers
+- `requestId` traces an API request across services
+- `jobId` traces the BullMQ lifecycle
+- `submissionId` is the persisted evaluation entity
+- `runId` is the ephemeral execution entity
+
+### Metrics Highlights
+- Average runtime and queue wait time (by language, status, queue state)
+- Retry frequency (by language)
+- Failure distribution (by language and reason)
+
+### DLQ Tooling
+- List/requeue/delete failed jobs
+- Failure categories: `INFRA_FAILURE`, `EXECUTION_TIMEOUT`, `SANDBOX_ERROR`, `REDIS_ERROR`, `COMPILATION_ERROR`
+
+---
+
 ## Verdict System
 
 Final submission verdicts are derived using strict deterministic priority ordering:

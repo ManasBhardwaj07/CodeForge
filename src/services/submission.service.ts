@@ -17,6 +17,7 @@ type CreateQueuedSubmissionInput = {
   problemId: string;
   code: string;
   language: string;
+  requestId?: string;
 };
 
 export async function createQueuedSubmission(
@@ -44,17 +45,30 @@ export async function createQueuedSubmission(
       status: "QUEUED",
     },
   });
-  console.log("DB SUBMISSION ID:", submission.id);
+  console.log(JSON.stringify({
+    level: "info",
+    message: "DB submission created",
+    submissionId: submission.id,
+    requestId: input.requestId ?? null,
+  }));
 
   const job = await getSubmissionQueue().add(
     "process-submission",
     { 
       type: 'submission',
-      submissionId: submission.id 
+      submissionId: submission.id,
+      language: input.language,
+      requestId: input.requestId,
     },
-    { jobId: `submission-${submission.id}` }
+    { jobId: `submission-${submission.id}`, removeOnComplete: false, removeOnFail: false }
   );
-  console.log("QUEUE JOB ID:", job.id);
+  console.log(JSON.stringify({
+    level: "info",
+    message: "Submission queued",
+    submissionId: submission.id,
+    jobId: job.id,
+    requestId: input.requestId ?? null,
+  }));
 
   return submission;
 }

@@ -293,14 +293,14 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
   useEffect(() => {
     if (typeof window === "undefined") return;
     const stored = localStorage.getItem(`codeforge:draft:${problemId}:${language}`);
-    if (stored && stored !== code) {
-      setCode(stored);
+    if (stored) {
+      setCode((prev) => (stored !== prev ? stored : prev));
     }
     const storedInput = localStorage.getItem(`codeforge:input:${problemId}`);
     if (storedInput != null) {
-      setCustomInput(storedInput);
-    } else if (sampleInput && sampleInput !== customInput) {
-      setCustomInput(sampleInput);
+      setCustomInput((prev) => (storedInput !== prev ? storedInput : prev));
+    } else if (sampleInput) {
+      setCustomInput((prev) => (sampleInput !== prev ? sampleInput : prev));
     }
   }, [problemId, language, sampleInput]);
 
