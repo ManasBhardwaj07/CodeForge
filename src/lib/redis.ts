@@ -10,10 +10,39 @@ export const redis = new Redis({
   enableOfflineQueue: false,
 });
 
-redis.on("connect", () => {
-  console.log("Redis connected");
+let redisWasReady = false;
+let lastRedisErrorKey: string | null = null;
+let lastRedisErrorLoggedAt = 0;
+let suppressedRedisErrors = 0;
+
+redis.on("ready", () => {
+  if (!redisWasReady) {
+    console.log("Redis connected");
+  }
+  redisWasReady = true;
+  lastRedisErrorKey = null;
+  lastRedisErrorLoggedAt = 0;
+  suppressedRedisErrors = 0;
+});
+
+redis.on("end", () => {
+  redisWasReady = false;
 });
 
 redis.on("error", (err) => {
-  console.error("Redis error:", err);
+  const message = err instanceof Error ? err.message : String(err);
+  const key = message;
+  const now = Date.now();
+  const throttleWindowMs = 5000;
+
+  if (key === lastRedisErrorKey && now - lastRedisErrorLoggedAt < throttleWindowMs) {
+    suppressedRedisErrors += 1;
+    return;
+  }
+
+  const suffix = suppressedRedisErrors > 0 ? ` (suppressed ${suppressedRedisErrors} repeats)` : "";
+  console.error(`Redis error${suffix}:`, err);
+  lastRedisErrorKey = key;
+  lastRedisErrorLoggedAt = now;
+  suppressedRedisErrors = 0;
 });

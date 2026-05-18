@@ -1,380 +1,281 @@
 # CodeForge
 
-CodeForge is a full-stack asynchronous code execution platform built to simulate production-grade online judge infrastructure using Docker sandboxing, Redis/BullMQ workers, deterministic verdict aggregation, and PostgreSQL-backed execution lifecycle tracking.
+CodeForge is a queue-backed asynchronous multi-language code execution platform with Docker sandboxing, execution telemetry, retries/DLQ handling, operational visibility, and deterministic judge-style evaluation.
 
-The system focuses on safe execution of untrusted workloads, asynchronous processing, execution isolation, and end-to-end backend architecture.
+This repository is intentionally **infrastructure-first**: it prioritizes the execution pipeline, correctness, recovery behavior, and cleanup guarantees over feature breadth.
 
-The project is developed phase-by-phase with strict validation gates, ensuring each layer (data, auth, async processing, execution, evaluation, frontend) is independently correct, testable, and defensible.
+## Project Identity (Non-Marketing Definition)
 
----
+- **Async execution platform**: API requests enqueue work; workers execute in Docker.
+- **Two execution paths**:
+   - **Ephemeral `run`**: immediate execution used for “Run code”.
+   - **Persistent `submission`**: DB-backed lifecycle with deterministic verdict aggregation.
+- **Operationally verifiable**: heartbeat truthfulness, abuse tests, recovery tests, cleanup audits.
 
-## Why CodeForge?
+Non-goals:
+- no contests/ratings/gamification
+- no microservices/Kubernetes architecture
+- no exaggerated security or hyperscale claims
 
-Most coding platform clones focus primarily on UI and problem rendering.
-
-CodeForge focuses on the backend infrastructure and execution pipeline required to safely execute untrusted workloads using asynchronous processing, isolated execution environments, deterministic evaluation, and queue-driven system design.
-
----
-
-## Core Objective
-
-Build a production-style execution system with the following flow:
-
-1. User submits code
-2. API validates and persists submission
-3. Submission is enqueued (Redis + BullMQ)
-4. Worker executes code inside an isolated Docker sandbox
-5. Results are stored in PostgreSQL
-6. Verdict is computed deterministically
-7. Frontend displays execution status and results
-
----
-
-## System Flow
+## Architecture Overview
 
 ```text
-Client
+Client UI
    ↓
-Next.js API Layer
+Next.js App Router (API routes + pages)
    ↓
-PostgreSQL (Persistence)
+PostgreSQL (Prisma)        Redis (BullMQ)
+   ↓                          ↓
+Submissions + results      Queue + retries + DLQ
+   ↓                          ↓
+Worker process  ── heartbeat + metrics ──┘
    ↓
-Redis Queue (BullMQ)
+Docker sandbox (multi-language)
    ↓
-Worker Process
-   ↓
-Docker Sandbox Execution
-   ↓
-Verdict Aggregation
-   ↓
-Frontend Status & Results
+Execution outcomes → deterministic verdict → UI polling/status
 ```
 
----
+### Core Technical Decisions
 
-## Tech Stack
+- **Async queue model**: execution is not tied to request lifecycle.
+- **Ephemeral runs vs persistent submissions**: “run” is fast + non-durable; “submission” is durable + judge-like.
+- **Request ID tracing**: `requestId` threads through API → queue → worker logs.
+- **Heartbeat-based liveness**: worker publishes TTL-based presence in Redis.
+- **DLQ semantics**: failed jobs are inspectable and can be replayed/deleted via ops endpoints.
+- **Output limiting**: prevents stdout/stderr spam from destabilizing the worker.
+- **Cleanup guarantees**: best-effort teardown of execution containers and temp workspaces.
 
-### Frontend
-- Next.js (App Router)
-- TypeScript
-- Tailwind CSS
+## Sandbox Design (Accurate Claims Only)
 
-### Backend
+CodeForge aims for **reasonable isolation for a portfolio-grade execution sandbox**, not cloud-provider-grade isolation.
+
+What exists:
+- Docker-based execution (no direct host execution)
+- timeout enforcement (per-test/global)
+- output truncation for stdout/stderr
+- best-effort cleanup (containers + temp dirs)
+
+### Workspace modes
+
+- `CODEFORGE_SANDBOX_USE_HOST_MOUNT=0` (recommended): avoids host temp-dir leaks on hard kill.
+- `CODEFORGE_SANDBOX_USE_HOST_MOUNT=1` (dev-only): uses a host temp dir and bind-mounts `/workspace`.
+
+## Execution & Determinism
+
+### Submission lifecycle
+
+```text
+QUEUED → RUNNING → COMPLETED | FAILED
+```
+
+### Deterministic verdict ordering
+
+```text
+COMPILATION_ERROR > TIMEOUT > RUNTIME_ERROR > WRONG_ANSWER > ACCEPTED
+```
+
+## Observability & Ops Endpoints
+
+### Trace identifiers
+
+- `requestId`: API → queue → worker correlation
+- `jobId`: BullMQ lifecycle
+- `submissionId`: persistent evaluation entity
+- `runId`: ephemeral run entity
+
+### Health
+
+- `GET /api/health`
+- `GET /api/queue/health` (includes worker heartbeat truthfulness)
+- `GET /api/queue/metrics`
+
+### DLQ operations
+
+- `GET /api/queue/dlq`
+- `POST /api/queue/dlq/[id]/requeue`
+- `POST /api/queue/dlq/[id]/delete`
+
+## Final Pre-Deployment Checklist (Deploy Only If Clean)
+
+This is the practical “if this passes, deploy” checklist. It is ROI-focused and architecture-preserving.
+
+### Phase 0 — Lock architecture (mandatory)
+
+Allowed changes only:
+- bug fixes, validation fixes, deployment fixes
+- observability fixes, cleanup guarantees, operational hardening
+
+Do not:
+- redesign worker/queue/sandbox architecture
+- rewrite core execution paths
+- introduce new infra tiers (websockets, microservices, Kubernetes)
+
+### Phase 1 — Static quality gates (all must pass)
+
+- `npm run lint`
+- `npm run typecheck`
+- `npm run build`
+- Convenience: `npm run check`
+
+Pass condition: zero TS/ESLint errors + production build succeeds.
+
+### Phase 2 — Execution validation
+
+Automated:
+- Smoke: `npm run ops:smoke-sandbox`
+- Cleanup audit: `npm run ops:audit-cleanup`
+
+Manual spot-check (recommended):
+- `POST /api/run` for each language in `SUPPORTED_LANGUAGES` (`JAVASCRIPT`, `PYTHON`, `CPP`, `C`, `JAVA`)
+- validate stdout/stderr capture, timeout enforcement, and compilation/runtime failure reporting
+
+### Phase 3 — Sandbox validation
+
+Automated abuse tests (currently cover JS/Python):
+- `npm run ops:abuse-infinite-loop`
+- `npm run ops:abuse-stdout-spam`
+- `npm run ops:abuse-memory-pressure`
+
+Pass condition:
+- timeouts enforced
+- truncation enforced
+- worker survives
+- no container leaks
+- no temp-dir leaks
+
+### Phase 4 — Recovery validation (critical)
+
+- Kill worker mid job: `npm run ops:recovery-kill-worker`
+- Kill worker mid *real submission* (DB-backed): `npm run ops:recovery-kill-worker-submission`
+- Redis restart: `npm run ops:recovery-redis-restart`
+
+Pass condition:
+- retries recover correctly
+- no zombie `RUNNING` submissions
+- queue state remains truthful
+
+### Phase 5 — DLQ + operations validation
+
+Validate via endpoints:
+- `GET /api/queue/dlq` (list)
+- `POST /api/queue/dlq/[id]/requeue`
+- `POST /api/queue/dlq/[id]/delete`
+
+Pass condition:
+- replay creates a new job safely
+- delete is safe and does not corrupt queue
+
+### Phase 6 — Cleanup guarantees
+
+- `npm run ops:audit-cleanup` after:
+   - timeout
+   - crash (hard kill)
+   - replay failure
+   - graceful shutdown
+
+Pass condition:
+- no orphan execution containers
+- no orphan temp dirs
+
+### Phase 7 — Observability validation
+
+Verify logs include (where applicable):
+- `requestId`, `jobId`, `submissionId`/`runId`, language, duration, failure category
+
+Verify metrics endpoints respond:
+- `GET /api/queue/metrics`
+
+### Phase 8 — Deployment readiness
+
+This repo does not currently ship a production `docker-compose.yml`.
+
+Deployment readiness here means:
+- environment variables are validated at startup
+- health endpoints are stable
+- worker shutdown + heartbeat expiry are truthful
+
+### Phase 9 — Final UX pass
+
+No redesign; stabilization only:
+- polling stable (no duplicate loops)
+- submission history accurate
+- status chips stable
+
+### Phase 10 — Documentation
+
+This README must describe CodeForge as an execution platform (not a LeetCode clone), only document what exists, and avoid exaggerated claims.
+
+## Setup / Runbook
+
+### Prerequisites
+
 - Node.js
-- Next.js API Routes
-
-### Infrastructure & Processing
-- Redis
-- BullMQ
 - Docker
+- PostgreSQL
+- Redis
+
+### Environment
+
+Copy `.env.example` to `.env` and fill:
+
+- `DATABASE_URL`
+- `REDIS_HOST`
+- `REDIS_PORT`
+- `JWT_SECRET`
+
+Optional knobs (ops/testing/hardening):
+
+- `CODEFORGE_WORKER_ID`
+- `CODEFORGE_WORKER_HEARTBEAT_INTERVAL_MS`
+- `CODEFORGE_WORKER_HEARTBEAT_TTL_MS`
+- `CODEFORGE_GRACEFUL_SHUTDOWN_TIMEOUT_MS`
+- `CODEFORGE_SELF_SHUTDOWN_AFTER_MS`
+- `CODEFORGE_STALE_RUNNING_TIMEOUT_MS`
+- `CODEFORGE_STALE_RECOVERY_INTERVAL_MS`
+- `CODEFORGE_SANDBOX_USE_HOST_MOUNT`
+- `CODEFORGE_SANDBOX_WORKSPACE_TMPFS_MB`
 
 ### Database
-- PostgreSQL
-- Prisma ORM
 
-### Authentication
-- JWT (stateless authentication)
+- `npm run db:generate`
+- `npm run db:migrate`
+- `npm run db:seed`
 
----
+### Start app + worker
 
-## Implemented Phases
+- App (UI + API): `npm run dev`
+- Worker: `npm run worker`
 
-### Phase 1 — Foundation
-- Strict TypeScript setup
-- Project structure
-- Infrastructure configuration
-
-### Phase 2 — Relational Data Modeling
-- PostgreSQL schema design
-- Prisma migrations
-- Foreign key constraints
-- QA validation
-
-### Phase 3 — Authentication & Submission APIs
-- JWT authentication
-- Protected routes
-- Submission validation pipeline
-
-### Phase 4 — Queue-Driven Execution System
-- BullMQ integration
-- Redis-backed queue lifecycle
-- Worker architecture
-
-### Phase 5 — Docker Sandbox Execution
-- Isolated container execution
-- JavaScript runtime support
-- C++ compile + execution pipeline
-- Timeout enforcement
-- Resource isolation & cleanup
-
-### Phase 6 — Deterministic Verdict Aggregation
-- Verdict priority system
-- Execution result aggregation
-- Submission statistics tracking
-
-### Phase 7 — Frontend Integration
-- Problem browsing
-- Code submission interface
-- Real-time polling
-- Submission history
-- Per-test execution visualization
-
----
-
-## Project Structure
-
-```text
-src/
-  app/           # Next.js pages and API routes
-  components/    # UI components
-  lib/           # Infrastructure (env, prisma, redis, auth)
-  services/      # Business logic
-  worker/        # BullMQ worker process
-  types/         # Shared TypeScript types
-
-prisma/
-  schema.prisma
-  migrations/
-  seed.ts
-```
-
----
-
-## Core Data Model
-
-### Entities
-- User
-- Problem
-- TestCase
-- Submission
-- ExecutionResult
-
-### Key Design Decisions
-- Strong foreign key enforcement
-- Deterministic submission lifecycle
-- Per-test execution tracking
-- Snapshot-based storage (`input`, `expected`, `actual`)
-- Strict verdict aggregation logic
-
-### Submission Lifecycle
-
-```text
-QUEUED → RUNNING → COMPLETED → FAILED
-```
-
----
-
-## Execution System
-
-Code execution never runs directly on the host machine.
-
-Each submission is executed inside an isolated Docker container with strict resource controls.
-
-### Isolation Features
-- No network access
-- Memory & CPU limits
-- Read-only filesystem
-- Non-root execution user
-
-### Supported Languages
-- JavaScript (Node.js)
-- C++ (compile + run separation)
-
-### Safety Guarantees
-- Per-test timeout enforcement
-- Global execution safety
-- Temporary file cleanup
-- Container cleanup after execution
-
----
-
-## Queue Observability
-
-CodeForge exposes lightweight, operational metrics for queue health and tracing.
-
-### Tracing Identifiers
-- `requestId` traces an API request across services
-- `jobId` traces the BullMQ lifecycle
-- `submissionId` is the persisted evaluation entity
-- `runId` is the ephemeral execution entity
-
-### Metrics Highlights
-- Average runtime and queue wait time (by language, status, queue state)
-- Retry frequency (by language)
-- Failure distribution (by language and reason)
-
-### DLQ Tooling
-- List/requeue/delete failed jobs
-- Failure categories: `INFRA_FAILURE`, `EXECUTION_TIMEOUT`, `SANDBOX_ERROR`, `REDIS_ERROR`, `COMPILATION_ERROR`
-
-### Worker Heartbeat
-
-To answer "is execution actually alive?" (not just "are jobs sitting in Redis?"), the worker publishes an ephemeral heartbeat into Redis.
-
-- Key pattern: `codeforge:worker-heartbeat:<workerId>`
-- TTL-based: if the key expires, the worker is considered offline
-- Exposed via `GET /api/queue/health` under the `workers` field
-
----
-
-## Verdict System
-
-Final submission verdicts are derived using strict deterministic priority ordering:
-
-```text
-COMPILE_ERROR > TIMEOUT > RUNTIME_ERROR > WRONG_ANSWER > ACCEPTED
-```
-
-Each submission stores:
-- final verdict
-- total tests
-- passed tests
-- failed tests
-
----
-
-## Frontend Features
-
-Minimal, functional, and system-focused UI.
-
-### Features
-- Problem browsing
-- Code editor & submission flow
-- Real-time execution polling
-- Per-test result visualization
-- Submission history
-- JWT-based authentication
-
-### UX Considerations
-- Polling cleanup & resume support
-- localStorage state persistence
-- Output truncation for large responses
-- Clear loading/error/empty states
-
----
-
-## Setup
-
-### 1. Clone Repository
-
-```bash
-git clone https://github.com/ManasBhardwaj07/CodeForge.git
-cd CodeForge
-```
-
-### 2. Install Dependencies
-
-```bash
-npm install
-```
-
-### 3. Configure Environment
-
-Create `.env` using `.env.example`
-
----
-
-## Database Setup
-
-```bash
-npm run db:migrate
-npm run db:generate
-npm run db:seed
-```
-
----
-
-## Start Services
-
-### Development Server
-
-```bash
-npm run dev
-```
-
-### Worker Process
-
-```bash
-npm run worker
-```
-
----
-
-## QA Validation
-
-```bash
-npm run qa:phase2
-npm run qa:phase3
-npm run qa:phase4
-npm run qa:phase5
-npm run qa:phase6
-```
-
----
-
-## Available Scripts
+## Script Reference
 
 ### Core
 
-```bash
-npm run dev
-npm run build
-npm run lint
-npm run typecheck
-npm run check
-```
+- `npm run lint`
+- `npm run typecheck`
+- `npm run build`
+- `npm run check`
 
-### Database
+### QA phases
 
-```bash
-npm run db:migrate
-npm run db:generate
-npm run db:seed
-```
+- `npm run qa:phase2`
+- `npm run qa:phase3`
+- `npm run qa:phase4`
+- `npm run qa:phase5`
+- `npm run qa:phase6`
 
-### Worker
+### Ops validation
 
-```bash
-npm run worker
-```
-
----
-
-## QA Coverage
-
-Each phase includes dedicated validation checks.
-
-### Phase 2
-- Relational integrity
-- Foreign key enforcement
-
-### Phase 3
-- Authentication flows
-- Route protection
-- Validation checks
-
-### Phase 4
-- Queue lifecycle validation
-- Async processing behavior
-
-### Phase 5
-- Docker sandbox execution
-- Timeout handling
-- Cleanup guarantees
-
-### Phase 6
-- Verdict correctness
-- Aggregation logic validation
-
----
-
-## Security Practices
-
-- `.env` ignored from version control
-- `.env.example` included
-- No hardcoded secrets
-- Containerized execution for untrusted code
-- Resource limits enforced during execution
+- `npm run ops:smoke-sandbox`
+- `npm run ops:audit-cleanup`
+- `npm run ops:check-heartbeats`
+- `npm run ops:validate-heartbeat-expiry`
+- `npm run ops:validate-worker-shutdown`
+- `npm run ops:abuse-infinite-loop`
+- `npm run ops:abuse-stdout-spam`
+- `npm run ops:abuse-memory-pressure`
+- `npm run ops:recovery-redis-restart`
+- `npm run ops:recovery-kill-worker`
+- `npm run ops:recovery-kill-worker-submission`
 
 ---
 

@@ -717,6 +717,9 @@ const staleRecoveryTimer = setInterval(() => {
 staleRecoveryTimer.unref();
 
 worker.on("ready", () => {
+  if (workerStatus === "shutting_down") {
+    return;
+  }
   logEvent("info", "Submission worker is ready");
   workerStatus = "healthy";
   void publishHeartbeat();
@@ -789,7 +792,40 @@ worker.on("failed", async (job, error) => {
 });
 
 worker.on("error", (error) => {
-  logEvent("error", "Worker runtime error", { error: error.message });
+  const now = Date.now();
+  const message = error?.message ?? "Unknown worker error";
+  const key = message;
+
+  // BullMQ/ioredis can emit repeated connection errors while Redis is down.
+  // Throttle identical errors to keep logs usable.
+  const throttleWindowMs = 5000;
+  type WorkerErrorThrottleState = {
+  lastKey: string | null;
+  lastAt: number;
+  suppressed: number;
+};
+
+const globalWithWorkerState = globalThis as typeof globalThis & {
+  __codeforgeWorkerErrorState?: WorkerErrorThrottleState;
+};
+
+globalWithWorkerState.__codeforgeWorkerErrorState ??= {
+  lastKey: null,
+  lastAt: 0,
+  suppressed: 0,
+};
+
+const state = globalWithWorkerState.__codeforgeWorkerErrorState;
+  if (state.lastKey === key && now - state.lastAt < throttleWindowMs) {
+    state.suppressed += 1;
+    return;
+  }
+
+  const suffix = state.suppressed > 0 ? ` (suppressed ${state.suppressed} repeats)` : "";
+  logEvent("error", `Worker runtime error${suffix}`, { error: message });
+  state.lastKey = key;
+  state.lastAt = now;
+  state.suppressed = 0;
 });
 
 const heartbeatTimer = setInterval(() => {

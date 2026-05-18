@@ -45,7 +45,15 @@ export type RunResult = {
 const queueConnection = {
   host: env.redisHost,
   port: env.redisPort,
+  lazyConnect: true,
+  enableOfflineQueue: false,
+  // BullMQ requires this to be null; it will warn/override otherwise.
   maxRetriesPerRequest: null,
+  retryStrategy: (times: number) => {
+    // Back off to avoid tight-loop error spam when Redis is down.
+    const delayMs = Math.min(250 * Math.max(1, times), 5000);
+    return delayMs;
+  },
 };
 
 const globalForQueue = globalThis as unknown as {
