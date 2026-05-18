@@ -18,7 +18,11 @@
     "qa:phase4": "tsx prisma/phase4-qa.ts",
     "qa:phase5": "tsx prisma/phase5-qa.ts",
     "qa:phase6": "tsx prisma/phase6-qa.ts",
-    "worker": "tsx src/worker/worker.ts"
+    "worker": "tsx src/worker/worker.ts",
+    "ops:check-heartbeats": "tsx src/scripts/checkHeartbeats.ts",
+    "ops:validate-heartbeat-expiry": "tsx src/scripts/validateHeartbeatExpiry.ts",
+    "ops:validate-worker-shutdown": "tsx src/scripts/validateWorkerShutdown.ts",
+    "ops:smoke-sandbox": "tsx src/scripts/smokeSandbox.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",

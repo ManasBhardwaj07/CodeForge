@@ -1,4 +1,5 @@
 import { rm } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import os from "node:os";
 import { Worker } from "bullmq";
@@ -19,6 +20,7 @@ import {
   executeInSandbox,
   runCompiledCppInDocker,
   type ExecutionLanguage,
+  forceCleanupActiveExecutionContainers,
 } from "../services/execution.service";
 import { evaluateSubmission } from "../services/evaluation.service";
 
@@ -39,7 +41,6 @@ const workerId =
 const heartbeatKey = `codeforge:worker-heartbeat:${workerId}`;
 let workerStatus: "starting" | "healthy" | "shutting_down" = "starting";
 let activeJobs = 0;
-let lastHeartbeatAt: string | null = null;
 
 let redisConnectInFlight: Promise<void> | null = null;
 
@@ -78,7 +79,6 @@ async function publishHeartbeat() {
   try {
     await ensureRedisConnected();
     await redis.set(heartbeatKey, JSON.stringify(payload), "EX", ttlSeconds);
-    lastHeartbeatAt = now;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
@@ -87,7 +87,6 @@ async function publishHeartbeat() {
       try {
         await ensureRedisConnected();
         await redis.set(heartbeatKey, JSON.stringify(payload), "EX", ttlSeconds);
-        lastHeartbeatAt = now;
         return;
       } catch {
         // fall through
@@ -716,31 +715,150 @@ const heartbeatTimer = setInterval(() => {
 
 heartbeatTimer.unref();
 
-async function shutdown() {
-  workerStatus = "shutting_down";
+function cleanupExitedCodeforgeContainersOnStartup() {
   try {
-    await redis.set(
-      heartbeatKey,
-      JSON.stringify({
-        workerId,
-        lastHeartbeat: lastHeartbeatAt ?? new Date().toISOString(),
-        activeJobs,
-        status: workerStatus,
-      }),
-      "EX",
-      5,
+    const res = spawnSync(
+      "docker",
+      [
+        "ps",
+        "-a",
+        "--filter",
+        "status=exited",
+        "--filter",
+        "name=codeforge-",
+        "--format",
+        "{{.ID}} {{.Names}} {{.Status}}",
+      ],
+      {
+        encoding: "utf8",
+        timeout: 10_000,
+      },
     );
-  } catch {
-    // ignore
-  }
 
-  clearInterval(heartbeatTimer);
-  clearInterval(staleRecoveryTimer);
-  await worker.close();
-  await prisma.$disconnect();
-  await redis.quit().catch(() => undefined);
-  process.exit(0);
+    if (res.status !== 0 || !res.stdout) {
+      return;
+    }
+
+    const lines = res.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    for (const line of lines) {
+      const parts = line.split(/\s+/);
+      const id = parts[0];
+      if (!id) {
+        continue;
+      }
+
+      spawnSync("docker", ["rm", "-f", id], { stdio: "ignore", timeout: 5000 });
+    }
+  } catch {
+    // Best-effort cleanup only.
+  }
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+cleanupExitedCodeforgeContainersOnStartup();
+
+let shutdownInFlight: Promise<void> | null = null;
+
+async function shutdown(reason: string) {
+  if (shutdownInFlight) {
+    return shutdownInFlight;
+  }
+
+  shutdownInFlight = (async () => {
+    workerStatus = "shutting_down";
+    logEvent("warn", "Worker shutdown initiated", { reason, activeJobs });
+
+    // Stop heartbeat first so liveness reflects reality quickly.
+    clearInterval(heartbeatTimer);
+
+    // Stop taking new jobs.
+    try {
+      await worker.pause();
+    } catch {
+      // ignore
+    }
+
+    // Wait for active jobs to drain with timeout.
+    const GRACEFUL_SHUTDOWN_TIMEOUT_MS = Number.parseInt(
+      process.env.CODEFORGE_GRACEFUL_SHUTDOWN_TIMEOUT_MS ?? "30000",
+      10,
+    );
+    const start = Date.now();
+    while (activeJobs > 0 && Date.now() - start < GRACEFUL_SHUTDOWN_TIMEOUT_MS) {
+      logEvent("info", "Waiting for active jobs to finish", { activeJobs });
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    if (activeJobs > 0) {
+      logEvent("warn", "Graceful shutdown timeout reached; forcing cleanup", { activeJobs });
+    }
+
+    // Best-effort: kill any containers still tracked as active.
+    try {
+      forceCleanupActiveExecutionContainers();
+    } catch {
+      // ignore
+    }
+
+    clearInterval(staleRecoveryTimer);
+
+    try {
+      await worker.close();
+    } catch {
+      // ignore
+    }
+
+    // Remove heartbeat key so health flips offline immediately.
+    try {
+      await ensureRedisConnected();
+      await redis.del(heartbeatKey);
+    } catch {
+      // ignore
+    }
+
+    try {
+      await prisma.$disconnect();
+    } catch {
+      // ignore
+    }
+
+    try {
+      await redis.quit();
+    } catch {
+      // ignore
+    }
+
+    process.exit(0);
+  })();
+
+  return shutdownInFlight;
+}
+
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
+});
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});
+
+const SELF_SHUTDOWN_AFTER_MS = Number.parseInt(process.env.CODEFORGE_SELF_SHUTDOWN_AFTER_MS ?? "0", 10);
+if (Number.isFinite(SELF_SHUTDOWN_AFTER_MS) && SELF_SHUTDOWN_AFTER_MS > 0) {
+  const timer = setTimeout(() => {
+    void shutdown("self_shutdown");
+  }, SELF_SHUTDOWN_AFTER_MS);
+  timer.unref();
+}
+
+process.on("uncaughtException", (error) => {
+  logEvent("error", "Uncaught exception", { error: error.message });
+  void shutdown("uncaughtException");
+});
+
+process.on("unhandledRejection", (error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  logEvent("error", "Unhandled rejection", { error: message });
+  void shutdown("unhandledRejection");
+});
