@@ -22,7 +22,14 @@
     "ops:check-heartbeats": "tsx src/scripts/checkHeartbeats.ts",
     "ops:validate-heartbeat-expiry": "tsx src/scripts/validateHeartbeatExpiry.ts",
     "ops:validate-worker-shutdown": "tsx src/scripts/validateWorkerShutdown.ts",
-    "ops:smoke-sandbox": "tsx src/scripts/smokeSandbox.ts"
+    "ops:smoke-sandbox": "tsx src/scripts/smokeSandbox.ts",
+    "ops:audit-cleanup": "tsx src/scripts/auditCleanup.ts",
+    "ops:abuse-infinite-loop": "tsx src/scripts/abuseInfiniteLoop.ts",
+    "ops:abuse-stdout-spam": "tsx src/scripts/abuseStdoutSpam.ts",
+    "ops:abuse-memory-pressure": "tsx src/scripts/abuseMemoryPressure.ts",
+    "ops:recovery-redis-restart": "tsx src/scripts/recoveryRedisRestart.ts",
+    "ops:recovery-kill-worker": "tsx src/scripts/recoveryKillWorkerMidJob.ts",
+    "ops:recovery-kill-worker-submission": "tsx src/scripts/recoveryKillWorkerMidSubmission.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",

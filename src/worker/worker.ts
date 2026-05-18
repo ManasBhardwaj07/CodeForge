@@ -24,8 +24,14 @@ import {
 } from "../services/execution.service";
 import { evaluateSubmission } from "../services/evaluation.service";
 
-const STALE_RUNNING_TIMEOUT_MS = 5 * 60 * 1000;
-const STALE_RECOVERY_INTERVAL_MS = 60 * 1000;
+const STALE_RUNNING_TIMEOUT_MS = Number.parseInt(
+  process.env.CODEFORGE_STALE_RUNNING_TIMEOUT_MS ?? String(5 * 60 * 1000),
+  10,
+);
+const STALE_RECOVERY_INTERVAL_MS = Number.parseInt(
+  process.env.CODEFORGE_STALE_RECOVERY_INTERVAL_MS ?? String(60 * 1000),
+  10,
+);
 const WORKER_PER_TEST_TIMEOUT_MS = Math.max(DEFAULT_PER_TEST_TIMEOUT_MS, 15000);
 
 const HEARTBEAT_INTERVAL_MS = Number.parseInt(
@@ -576,6 +582,9 @@ const worker = new Worker<JobData>(
       const submissionId = data.submissionId;
       logEvent("info", "Processing submission", { submissionId, jobId: job.id, requestId: data.requestId ?? null });
 
+      const attemptsMade = job.attemptsMade ?? 0;
+      const isRetryAttempt = attemptsMade > 0;
+
       const started = await prisma.submission.updateMany({
         where: {
           id: submissionId,
@@ -594,7 +603,81 @@ const worker = new Worker<JobData>(
       });
 
       if (started.count === 0) {
-        throw new Error(`Submission ${submissionId} is not QUEUED or does not exist`);
+        const current = await prisma.submission.findUnique({
+          where: { id: submissionId },
+          select: { status: true, startedAt: true },
+        });
+
+        if (!current) {
+          // No DB record; nothing to do. Avoid endless retries.
+          logEvent("warn", "Submission job has no DB record; skipping", {
+            submissionId,
+            jobId: job.id,
+            requestId: data.requestId ?? null,
+          });
+          return;
+        }
+
+        // Idempotency: if stale recovery already moved this to terminal, or another worker is handling it,
+        // do not fail the job (which would trigger retries).
+        if (current.status === SubmissionStatus.FAILED || current.status === SubmissionStatus.COMPLETED) {
+          logEvent("info", "Submission already terminal; skipping job", {
+            submissionId,
+            status: current.status,
+            jobId: job.id,
+            requestId: data.requestId ?? null,
+          });
+          return;
+        }
+
+        if (current.status === SubmissionStatus.RUNNING) {
+          // Coordination rule:
+          // - If this is a retry, assume the previous worker died mid-execution. Take over.
+          // - If this is the first attempt and it's RUNNING, another worker is likely executing it.
+          if (!isRetryAttempt) {
+            logEvent("warn", "Submission already RUNNING on first attempt; skipping job", {
+              submissionId,
+              jobId: job.id,
+              requestId: data.requestId ?? null,
+            });
+            return;
+          }
+
+          logEvent("warn", "Retry takeover for RUNNING submission", {
+            submissionId,
+            jobId: job.id,
+            requestId: data.requestId ?? null,
+            attemptsMade,
+            startedAt: current.startedAt?.toISOString() ?? null,
+          });
+
+          // Clear partial results to avoid unique constraint collisions on (submissionId, testCaseId).
+          await prisma.executionResult.deleteMany({
+            where: { submissionId },
+          });
+
+          // Refresh startedAt and reset counters/verdict so the retry produces a clean final state.
+          await prisma.submission.updateMany({
+            where: {
+              id: submissionId,
+              status: SubmissionStatus.RUNNING,
+            },
+            data: {
+              startedAt: new Date(),
+              verdict: null,
+              totalTests: 0,
+              passedTests: 0,
+              failedTests: 0,
+              completedAt: null,
+              failedAt: null,
+            },
+          });
+
+          await handleSubmissionJob(submissionId, data.requestId ?? null);
+          return;
+        }
+
+        throw new Error(`Submission ${submissionId} is not QUEUED when starting (status=${current.status})`);
       }
 
       await handleSubmissionJob(submissionId, data.requestId ?? null);
@@ -716,24 +799,19 @@ const heartbeatTimer = setInterval(() => {
 heartbeatTimer.unref();
 
 function cleanupExitedCodeforgeContainersOnStartup() {
+  const executionNamePrefixes = [
+    "codeforge-js-",
+    "codeforge-py-",
+    "codeforge-cpp-",
+    "codeforge-c-",
+    "codeforge-java-",
+  ];
+
   try {
-    const res = spawnSync(
-      "docker",
-      [
-        "ps",
-        "-a",
-        "--filter",
-        "status=exited",
-        "--filter",
-        "name=codeforge-",
-        "--format",
-        "{{.ID}} {{.Names}} {{.Status}}",
-      ],
-      {
-        encoding: "utf8",
-        timeout: 10_000,
-      },
-    );
+    const res = spawnSync("docker", ["ps", "-a", "--format", "{{.ID}} {{.Names}} {{.Status}}"], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
 
     if (res.status !== 0 || !res.stdout) {
       return;
@@ -747,7 +825,17 @@ function cleanupExitedCodeforgeContainersOnStartup() {
     for (const line of lines) {
       const parts = line.split(/\s+/);
       const id = parts[0];
+      const name = parts[1] ?? "";
       if (!id) {
+        continue;
+      }
+
+      if (!executionNamePrefixes.some((prefix) => name.startsWith(prefix))) {
+        continue;
+      }
+
+      // Only clean up non-running containers.
+      if (!line.toLowerCase().includes("exited") && !line.toLowerCase().includes("created") && !line.toLowerCase().includes("dead")) {
         continue;
       }
 

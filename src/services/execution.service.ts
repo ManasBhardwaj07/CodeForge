@@ -627,20 +627,24 @@ async function executeJavaScriptInDocker(
 ): Promise<ExecutionOutcome> {
   await ensureDockerImageAvailable("node:18");
 
-  const workspaceDir = await mkdtemp(path.join(tmpdir(), "codeforge-js-"));
-  const sourceFilePath = path.join(workspaceDir, "main.js");
-  const cidFilePath = path.join(workspaceDir, "container.cid");
+  const workspaceDir = SANDBOX_USE_HOST_MOUNT ? await mkdtemp(path.join(tmpdir(), "codeforge-js-")) : null;
+  const sourceFilePath = workspaceDir ? path.join(workspaceDir, "main.js") : null;
+  const cidFilePath = workspaceDir ? path.join(workspaceDir, "container.cid") : null;
   const containerName = makeContainerName(request);
   const timeoutMs = Math.min(policy.perTestTimeoutMs, policy.globalTimeoutMs);
-  const normalizedWorkspaceDir = normalizeDockerMountPath(workspaceDir);
+  const normalizedWorkspaceDir = workspaceDir ? normalizeDockerMountPath(workspaceDir) : null;
 
   try {
-    await writeFile(sourceFilePath, request.code, "utf8");
-
     let containerId: string | undefined;
     let processResult: ProcessResult;
 
     if (SANDBOX_USE_HOST_MOUNT) {
+      if (!sourceFilePath || !cidFilePath || !normalizedWorkspaceDir) {
+        throw new ExecutionServiceError("Host mount workspace not initialized", "INFRA_ERROR");
+      }
+
+      await writeFile(sourceFilePath, request.code, "utf8");
+
       const dockerArgs = buildBaseDockerRunArgs({
         containerName,
         workspacePath: normalizedWorkspaceDir,
@@ -667,6 +671,7 @@ async function executeJavaScriptInDocker(
       createArgs.push("node:18", "sh", "-lc", "sleep 3600");
 
       containerId = await dockerCreateContainer(createArgs);
+      activeExecutionContainers.add(containerName);
       const startResult = await runProcess("docker", ["start", containerName], "", { timeoutMs: 10_000 });
       if (startResult.exitCode !== 0) {
         throw new ExecutionServiceError(
@@ -687,8 +692,6 @@ async function executeJavaScriptInDocker(
           "INFRA_ERROR",
         );
       }
-
-      activeExecutionContainers.add(containerName);
       processResult = await runProcess("docker", ["exec", "-i", containerName, "node", "/workspace/main.js"], request.input, {
         timeoutMs,
         onTimeout: () => forceRemoveContainer(containerName),
@@ -738,7 +741,9 @@ async function executeJavaScriptInDocker(
   } finally {
     activeExecutionContainers.delete(containerName);
     forceRemoveContainer(containerName);
-    await rm(workspaceDir, { recursive: true, force: true });
+    if (workspaceDir) {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
   }
 }
 
@@ -1385,20 +1390,24 @@ async function executePythonInDocker(
 ): Promise<ExecutionOutcome> {
   await ensureDockerImageAvailable("python:3.11");
 
-  const workspaceDir = await mkdtemp(path.join(tmpdir(), "codeforge-py-"));
-  const sourceFilePath = path.join(workspaceDir, "main.py");
-  const cidFilePath = path.join(workspaceDir, "container.cid");
+  const workspaceDir = SANDBOX_USE_HOST_MOUNT ? await mkdtemp(path.join(tmpdir(), "codeforge-py-")) : null;
+  const sourceFilePath = workspaceDir ? path.join(workspaceDir, "main.py") : null;
+  const cidFilePath = workspaceDir ? path.join(workspaceDir, "container.cid") : null;
   const containerName = makeContainerName(request);
   const timeoutMs = Math.min(policy.perTestTimeoutMs, policy.globalTimeoutMs);
-  const normalizedWorkspaceDir = normalizeDockerMountPath(workspaceDir);
+  const normalizedWorkspaceDir = workspaceDir ? normalizeDockerMountPath(workspaceDir) : null;
 
   try {
-    await writeFile(sourceFilePath, request.code, "utf8");
-
     let containerId: string | undefined;
     let processResult: ProcessResult;
 
     if (SANDBOX_USE_HOST_MOUNT) {
+      if (!sourceFilePath || !cidFilePath || !normalizedWorkspaceDir) {
+        throw new ExecutionServiceError("Host mount workspace not initialized", "INFRA_ERROR");
+      }
+
+      await writeFile(sourceFilePath, request.code, "utf8");
+
       const dockerArgs = buildBaseDockerRunArgs({
         containerName,
         workspacePath: normalizedWorkspaceDir,
@@ -1425,6 +1434,7 @@ async function executePythonInDocker(
       createArgs.push("python:3.11", "sh", "-lc", "sleep 3600");
 
       containerId = await dockerCreateContainer(createArgs);
+      activeExecutionContainers.add(containerName);
       const startResult = await runProcess("docker", ["start", containerName], "", { timeoutMs: 10_000 });
       if (startResult.exitCode !== 0) {
         throw new ExecutionServiceError(
@@ -1445,8 +1455,6 @@ async function executePythonInDocker(
           "INFRA_ERROR",
         );
       }
-
-      activeExecutionContainers.add(containerName);
       processResult = await runProcess("docker", ["exec", "-i", containerName, "python", "/workspace/main.py"], request.input, {
         timeoutMs,
         onTimeout: () => forceRemoveContainer(containerName),
@@ -1496,7 +1504,9 @@ async function executePythonInDocker(
   } finally {
     activeExecutionContainers.delete(containerName);
     forceRemoveContainer(containerName);
-    await rm(workspaceDir, { recursive: true, force: true });
+    if (workspaceDir) {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
   }
 }
 
