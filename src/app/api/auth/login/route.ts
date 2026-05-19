@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     return errorResponse("Invalid JSON body", "INVALID_JSON", 400);
   }
 
-  // Require either email or username (not both, not neither)
+  // Require at least one identifier (email or username)
   if (!payload.email && !payload.username) {
     return errorResponse("Either email or username is required", "INVALID_AUTH_INPUT", 400);
   }
