@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -151,34 +151,34 @@ const LANGUAGE_CONFIGS: Record<ExecutionLanguage, ExecConfig> = {
     image: "node:18",
     sourceFileName: "main.js",
     runCmd: (failsafeSec) => `timeout -k 1s ${failsafeSec}s node /workspace/main.js`,
-    getRunAsUser: (p) => (p.runAsNonRoot ? "node" : "0:0"),
+    getRunAsUser: (p) => (p.runAsNonRoot ? "node" : "0:0")
   },
   PYTHON: {
     image: "python:3.11",
     sourceFileName: "main.py",
     runCmd: (failsafeSec) => `timeout -k 1s ${failsafeSec}s python /workspace/main.py`,
-    getRunAsUser: (p) => (p.runAsNonRoot ? "1000:1000" : "0:0"),
+    getRunAsUser: (p) => (p.runAsNonRoot ? "1000:1000" : "0:0")
   },
   C: {
     image: "gcc:13",
     sourceFileName: "main.c",
     compileCmd: "gcc -std=c11 /workspace/main.c -O2 -o /workspace/main.out",
     runCmd: () => "/workspace/main.out",
-    getRunAsUser: (p) => (p.runAsNonRoot ? "1000:1000" : "0:0"),
+    getRunAsUser: (p) => (p.runAsNonRoot ? "1000:1000" : "0:0")
   },
   CPP: {
     image: "gcc:13",
     sourceFileName: "main.cpp",
     compileCmd: "g++ -std=c++17 /workspace/main.cpp -O2 -o /workspace/main.out",
     runCmd: () => "/workspace/main.out",
-    getRunAsUser: (p) => (p.runAsNonRoot ? "1000:1000" : "0:0"),
+    getRunAsUser: (p) => (p.runAsNonRoot ? "1000:1000" : "0:0")
   },
   JAVA: {
     image: "eclipse-temurin:17-jdk",
     sourceFileName: "Main.java",
     compileCmd: "javac /workspace/Main.java",
     runCmd: () => "java -cp /workspace Main",
-    getRunAsUser: (p) => (p.runAsNonRoot ? "1000:1000" : "0:0"),
+    getRunAsUser: (p) => (p.runAsNonRoot ? "1000:1000" : "0:0")
   },
 };
 
@@ -324,7 +324,7 @@ function normalizeDockerMountPath(localPath: string): string {
 }
 
 async function cleanupStaleTempWorkspaces() {
-  const baseTempDir = tmpdir();
+
   const entries = await readdir(baseTempDir, { withFileTypes: true });
   const cutoff = Date.now() - TEMP_WORKSPACE_STALE_AGE_MS;
 
@@ -379,11 +379,12 @@ function buildBaseDockerRunArgs(options: {
 
   if (cidFilePath) dockerArgs.push("--cidfile", cidFilePath);
   if (policy.disableNetwork) dockerArgs.push("--network", "none");
-  if (policy.readOnlyRootFs) {
-    dockerArgs.push("--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,uid=1000,gid=1000,mode=1777,size=64m");
-  }
+ // if (policy.readOnlyRootFs) {
+  //  dockerArgs.push("--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,uid=1000,gid=1000,mode=1777,size=64m");
+ // }
+  console.log("DOCKER ARGS =", dockerArgs);
 
-  return dockerArgs;
+ return dockerArgs;
 }
 
 function buildBaseDockerCreateArgs(options: {
@@ -405,9 +406,9 @@ function buildBaseDockerCreateArgs(options: {
   ];
 
   if (policy.disableNetwork) dockerArgs.push("--network", "none");
-  if (policy.readOnlyRootFs) {
-    dockerArgs.push("--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=1777,size=64m");
-  }
+ // if (policy.readOnlyRootFs) {
+   // dockerArgs.push("--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=1777,size=64m");
+  //}
 
   return dockerArgs;
 }
@@ -475,6 +476,24 @@ function addOutputTruncationNote(stderr: string, processResult: ProcessResult) {
 
   const suffix = `Output truncated (${notes.join(", ")}).`;
   return stderr.length === 0 ? suffix : `${stderr}\n${suffix}`;
+}
+function sanitizeRuntimeError(stderr: string) {
+  return stderr
+    .split("\n")
+    .filter(
+      (line) =>
+        !line.includes("node:internal") &&
+        !line.includes("Module._") &&
+        !line.includes("at node:internal") &&
+        !line.includes("Node.js v") &&
+        !line.includes("^") &&
+        !line.startsWith("/workspace/")
+    )
+    .map((line) =>
+      line.replace("/workspace/main.js", "main.js")
+    )
+    .join("\n")
+    .trim();
 }
 
 async function ensureDockerImageAvailable(image: string) {
@@ -635,7 +654,9 @@ function mapProcessToOutcome(
   if (processResult.exitCode !== 0) {
     return {
       stdout: processResult.stdout,
-      stderr: stderrWithNotes,
+      stderr: isCompileStep
+       ? stderrWithNotes
+       : sanitizeRuntimeError(stderrWithNotes),
       success: false,
       executionTimeMs: totalExecutionTimeMs,
       exitCode: processResult.exitCode,
@@ -659,106 +680,6 @@ function mapProcessToOutcome(
   };
 }
 
-async function executeWithHostMount(
-  request: ExecutionRequest,
-  policy: ExecutionPolicy,
-  config: ExecConfig
-): Promise<ExecutionOutcome> {
-  const isTwoStage = !!config.compileCmd;
-  const containerNameBase = makeContainerName(request);
-  const maxRuntimeMs = Math.min(policy.perTestTimeoutMs, policy.globalTimeoutMs);
-  const deadline = Date.now() + maxRuntimeMs;
-  const runAsUser = config.getRunAsUser(policy);
-  const failsafeSec = Math.max(30, Math.ceil(maxRuntimeMs / 1000) + 30);
-
-  const workspaceDir = await mkdtemp(path.join(tmpdir(), `${LANGUAGE_PREFIX[request.language]}-`));
-  const normalizedWorkspaceDir = normalizeDockerMountPath(workspaceDir);
-  let compileContainerId: string | undefined;
-  let runContainerId: string | undefined;
-  let totalExecutionTimeMs = 0;
-  let outputTruncated = false;
-
-  try {
-    await writeFile(path.join(workspaceDir, config.sourceFileName), request.code, "utf8");
-
-    // Stage 1: Compile
-    if (isTwoStage) {
-      const compileContainerName = `${containerNameBase}-compile`;
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) return generateTimeoutOutcome(0, undefined, undefined, false);
-
-      const cidFilePath = path.join(workspaceDir, "compile.cid");
-      const dockerArgs = buildBaseDockerRunArgs({
-        containerName: compileContainerName,
-        workspacePath: normalizedWorkspaceDir,
-        policy,
-        userArg: runAsUser,
-        cidFilePath: normalizeDockerMountPath(cidFilePath),
-      });
-      dockerArgs.push(config.image, "sh", "-lc", config.compileCmd!);
-
-      activeExecutionContainers.add(compileContainerName);
-      const processResult = await runProcess("docker", dockerArgs, "", {
-        timeoutMs: remainingMs,
-        containerNameToKill: compileContainerName,
-      });
-
-      compileContainerId = await readContainerIdFromCidFile(cidFilePath);
-      totalExecutionTimeMs += processResult.executionTimeMs;
-      outputTruncated = outputTruncated || processResult.stdoutTruncated || processResult.stderrTruncated;
-
-      const outcome = mapProcessToOutcome(processResult, compileContainerId, runContainerId, outputTruncated, true, totalExecutionTimeMs);
-      if (!outcome.success) return outcome;
-    }
-
-    // Stage 2: Run
-    const runContainerName = isTwoStage ? `${containerNameBase}-run` : containerNameBase;
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) return generateTimeoutOutcome(totalExecutionTimeMs, compileContainerId, undefined, outputTruncated);
-
-    const cidFilePath = path.join(workspaceDir, "run.cid");
-    const dockerArgs = buildBaseDockerRunArgs({
-      containerName: runContainerName,
-      workspacePath: normalizedWorkspaceDir,
-      policy,
-      userArg: runAsUser,
-      cidFilePath: normalizeDockerMountPath(cidFilePath),
-    });
-    dockerArgs.push(config.image, "sh", "-lc", config.runCmd(failsafeSec));
-
-    activeExecutionContainers.add(runContainerName);
-    const processResult = await runProcess("docker", dockerArgs, request.input, {
-      timeoutMs: remainingMs,
-      containerNameToKill: runContainerName,
-    });
-
-    runContainerId = await readContainerIdFromCidFile(cidFilePath);
-    totalExecutionTimeMs += processResult.executionTimeMs;
-    outputTruncated = outputTruncated || processResult.stdoutTruncated || processResult.stderrTruncated;
-
-    return mapProcessToOutcome(processResult, compileContainerId || runContainerId, runContainerId, outputTruncated, false, totalExecutionTimeMs);
-
-  } catch (error) {
-    throw new ExecutionServiceError(`Host mount execution failed: ${error instanceof Error ? error.message : String(error)}`, "INFRA_ERROR");
-  } finally {
-    if (isTwoStage) activeExecutionContainers.delete(`${containerNameBase}-compile`);
-    activeExecutionContainers.delete(isTwoStage ? `${containerNameBase}-run` : containerNameBase);
-    
-    try {
-      if (isTwoStage) {
-        await forceRemoveContainer(`${containerNameBase}-compile`);
-      }
-    } catch {}
-
-    try {
-      await forceRemoveContainer(isTwoStage ? `${containerNameBase}-run` : containerNameBase);
-    } catch {}
-
-    try {
-      await rm(workspaceDir, { recursive: true, force: true });
-    } catch {}
-  }
-}
 
 async function executeWithoutHostMount(
   request: ExecutionRequest,
@@ -841,20 +762,9 @@ async function executeWithoutHostMount(
   }
 }
 
-async function runContainerizedExecution(
-  request: ExecutionRequest,
-  policy: ExecutionPolicy,
-  config: ExecConfig
-): Promise<ExecutionOutcome> {
-  if (SANDBOX_USE_HOST_MOUNT) {
-    return executeWithHostMount(request, policy, config);
-  } else {
-    return executeWithoutHostMount(request, policy, config);
-  }
-}
+
 
 export async function executeInSandbox(request: ExecutionRequest): Promise<ExecutionOutcome> {
-  await runTempWorkspaceJanitorIfDue();
 
   const policy = validateExecutionRequest(request);
   const config = LANGUAGE_CONFIGS[request.language];
@@ -875,8 +785,8 @@ export async function compileCppInDocker(params: {
   policy?: ExecutionPolicyOverrides;
   context?: ExecutionRequest["context"];
 }): Promise<{ outcome: ExecutionOutcome; artifact?: CompiledCppArtifact }> {
+    throw new Error("compileCppInDocker is deprecated"); 
   const policy = normalizeExecutionPolicy(params.policy);
-  const workspaceDir = await mkdtemp(path.join(tmpdir(), "codeforge-cpp-"));
   const sourceFilePath = path.join(workspaceDir, "main.cpp");
   const compileCidFilePath = path.join(workspaceDir, "compile.cid");
   const compileContainerName = `${makeContainerName({ language: "CPP", code: params.code, input: "", context: params.context })}-compile`;

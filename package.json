@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck && npm run build",
     "db:migrate": "prisma migrate dev --name init_phase2_schema",
-    "db:generate": "prisma generate",
+    "db:generate": "prisma generate --schema=./prisma/schema.prisma",
     "db:seed": "tsx prisma/seed.ts",
     "worker": "tsx src/worker/worker.ts",
     "ops:check-heartbeats": "tsx src/scripts/checkHeartbeats.ts",
