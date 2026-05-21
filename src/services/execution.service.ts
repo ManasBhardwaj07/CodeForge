@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import {chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -323,35 +323,13 @@ function normalizeDockerMountPath(localPath: string): string {
   return localPath.replace(/\\/g, "/");
 }
 
-async function cleanupStaleTempWorkspaces() {
-
-  const entries = await readdir(baseTempDir, { withFileTypes: true });
-  const cutoff = Date.now() - TEMP_WORKSPACE_STALE_AGE_MS;
-
-  await Promise.all(
-    entries.map(async (entry) => {
-      if (!entry.isDirectory()) return;
-      if (!TEMP_WORKSPACE_PREFIXES.some((prefix) => entry.name.startsWith(prefix))) return;
-
-      const workspacePath = path.join(baseTempDir, entry.name);
-      try {
-        const metadata = await stat(workspacePath);
-        if (metadata.mtimeMs < cutoff) {
-          await rm(workspacePath, { recursive: true, force: true });
-        }
-      } catch {
-        // Ignore races where temp dirs disappear between list and stat/remove.
-      }
-    }),
-  );
-}
 
 async function runTempWorkspaceJanitorIfDue() {
   const now = Date.now();
   if (now - lastTempWorkspaceJanitorRunAt < 5 * 60 * 1000) return;
   lastTempWorkspaceJanitorRunAt = now;
   try {
-    await cleanupStaleTempWorkspaces();
+
   } catch {
     // Cleanup is best-effort and should not block execution.
   }
@@ -370,8 +348,9 @@ function buildBaseDockerRunArgs(options: {
     "run", "--pull", "never", "--rm", "--interactive", "--name", containerName,
     "--security-opt", "no-new-privileges", "--cap-drop", "ALL",
     "--workdir", "/workspace",
-    "--volume", `${workspacePath}:/workspace`,
+    "--volume", `${workspacePath}:/workspace:rw`,
     "--memory", `${policy.limits.memoryMb}m`,
+    "--memory-swap", `${policy.limits.memoryMb}m`,
     "--cpus", `${policy.limits.cpuCount}`,
     "--pids-limit", `${policy.limits.pids}`,
     "--user", userArg,
@@ -379,12 +358,11 @@ function buildBaseDockerRunArgs(options: {
 
   if (cidFilePath) dockerArgs.push("--cidfile", cidFilePath);
   if (policy.disableNetwork) dockerArgs.push("--network", "none");
- // if (policy.readOnlyRootFs) {
-  //  dockerArgs.push("--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,uid=1000,gid=1000,mode=1777,size=64m");
- // }
-  console.log("DOCKER ARGS =", dockerArgs);
+  if (policy.readOnlyRootFs) {
+    dockerArgs.push("--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,uid=1000,gid=1000,mode=1777,size=64m");
+  }
 
- return dockerArgs;
+  return dockerArgs;
 }
 
 function buildBaseDockerCreateArgs(options: {
@@ -400,15 +378,16 @@ function buildBaseDockerCreateArgs(options: {
     "--workdir", "/workspace",
     "--tmpfs", `/workspace:rw,exec,nosuid,nodev,uid=1000,gid=1000,mode=0777,size=${Math.max(64, SANDBOX_WORKSPACE_TMPFS_MB)}m`,
     "--memory", `${policy.limits.memoryMb}m`,
+    "--memory-swap", `${policy.limits.memoryMb}m`,
     "--cpus", `${policy.limits.cpuCount}`,
     "--pids-limit", `${policy.limits.pids}`,
     "--user", userArg,
   ];
 
   if (policy.disableNetwork) dockerArgs.push("--network", "none");
- // if (policy.readOnlyRootFs) {
-   // dockerArgs.push("--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=1777,size=64m");
-  //}
+  if (policy.readOnlyRootFs) {
+    dockerArgs.push("--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=1777,size=64m");
+  }
 
   return dockerArgs;
 }
@@ -478,10 +457,38 @@ function addOutputTruncationNote(stderr: string, processResult: ProcessResult) {
   return stderr.length === 0 ? suffix : `${stderr}\n${suffix}`;
 }
 function sanitizeRuntimeError(stderr: string) {
-  return stderr
+  const normalized = stderr.toLowerCase();
+
+  // Memory limit
+  if (
+    normalized.includes("heap out of memory") ||
+    normalized.includes("allocation failed") ||
+    normalized.includes("memory limit") ||
+    normalized.includes("killed") ||
+    normalized.includes("outofmemoryerror")
+  ) {
+    return "Memory Limit Exceeded";
+  }
+
+  // Timeout
+  if (normalized.includes("execution timed out")) {
+    return "Time Limit Exceeded";
+  }
+
+  if (normalized.includes("what():")) {
+  const match = stderr.match(/what\(\):\s*(.*)/);
+
+  if (match?.[1]) {
+    return `Runtime Error: ${match[1].trim()}`;
+  }
+}
+
+  const cleanedLines = stderr
     .split("\n")
+    .map((line) => line.trim())
     .filter(
       (line) =>
+        line &&
         !line.includes("node:internal") &&
         !line.includes("Module._") &&
         !line.includes("at node:internal") &&
@@ -490,10 +497,34 @@ function sanitizeRuntimeError(stderr: string) {
         !line.startsWith("/workspace/")
     )
     .map((line) =>
-      line.replace("/workspace/main.js", "main.js")
+      line.replace("/workspace/", "")
     )
-    .join("\n")
-    .trim();
+
+  // Keep only useful JS runtime lines
+  const errorLine = cleanedLines.find((line) =>
+    line.startsWith("Error:")
+  );
+
+  const stackLine = cleanedLines.find((line) =>
+    line.includes("(main.js:")
+
+
+  );
+
+  const cleanedStackLine = stackLine
+    ?.replace("at Object.<anonymous> ", "at ")
+    ?.replace(/[()]/g, "");
+
+  if (errorLine) {
+    return [errorLine, cleanedStackLine]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return cleanedLines
+  .join("\n")
+  .replaceAll("(core dumped)", "")
+  .trim();
 }
 
 async function ensureDockerImageAvailable(image: string) {
@@ -533,18 +564,18 @@ async function runProcess(
     const timeoutHandle =
       options?.timeoutMs && options.timeoutMs > 0
         ? setTimeout(() => {
-            if (settled) return;
+          if (settled) return;
 
-            timedOut = true;
-            stderr += `\nExecution timed out after ${options.timeoutMs}ms.`;
+          timedOut = true;
+          stderr = "Time Limit Exceeded";
 
-            // Hard kill container on timeout to ensure abuse resistance (fork bombs, out-of-control memory)
-            if (options.containerNameToKill) {
-              spawn("docker", ["kill", options.containerNameToKill], { stdio: "ignore" });
-            }
+          // Hard kill container on timeout to ensure abuse resistance (fork bombs, out-of-control memory)
+          if (options.containerNameToKill) {
+            spawn("docker", ["kill", options.containerNameToKill], { stdio: "ignore" });
+          }
 
-            terminateProcessTree(child.pid);
-          }, options.timeoutMs)
+          terminateProcessTree(child.pid);
+        }, options.timeoutMs)
         : undefined;
 
     child.on("error", (error) => {
@@ -570,6 +601,18 @@ async function runProcess(
       if (settled) return;
       settled = true;
       if (timeoutHandle) clearTimeout(timeoutHandle);
+
+      if (
+        !timedOut &&
+        (
+          stderr.toLowerCase().includes("heap out of memory") ||
+          stderr.toLowerCase().includes("allocation failed") ||
+          stderr.toLowerCase().includes("killed") ||
+          exitCode === 137
+        )
+      ) {
+        stderr = "Memory Limit Exceeded";
+      }
 
       resolve({
         stdout,
@@ -655,8 +698,8 @@ function mapProcessToOutcome(
     return {
       stdout: processResult.stdout,
       stderr: isCompileStep
-       ? stderrWithNotes
-       : sanitizeRuntimeError(stderrWithNotes),
+        ? stderrWithNotes.replaceAll("/workspace/", "")
+        : sanitizeRuntimeError(stderrWithNotes),
       success: false,
       executionTimeMs: totalExecutionTimeMs,
       exitCode: processResult.exitCode,
@@ -755,11 +798,19 @@ async function executeWithoutHostMount(
     throw new ExecutionServiceError(`Non-host mount execution failed: ${error instanceof Error ? error.message : String(error)}`, "INFRA_ERROR");
   } finally {
     activeExecutionContainers.delete(containerName);
-    
+
     try {
       await forceRemoveContainer(containerName);
-    } catch {}
+    } catch { }
   }
+}
+
+async function runContainerizedExecution(
+  request: ExecutionRequest,
+  policy: ExecutionPolicy,
+  config: ExecConfig
+): Promise<ExecutionOutcome> {
+  return executeWithoutHostMount(request, policy, config);
 }
 
 
@@ -785,123 +836,38 @@ export async function compileCppInDocker(params: {
   policy?: ExecutionPolicyOverrides;
   context?: ExecutionRequest["context"];
 }): Promise<{ outcome: ExecutionOutcome; artifact?: CompiledCppArtifact }> {
-    throw new Error("compileCppInDocker is deprecated"); 
-  const policy = normalizeExecutionPolicy(params.policy);
-  const sourceFilePath = path.join(workspaceDir, "main.cpp");
-  const compileCidFilePath = path.join(workspaceDir, "compile.cid");
-  const compileContainerName = `${makeContainerName({ language: "CPP", code: params.code, input: "", context: params.context })}-compile`;
-  const normalizedWorkspaceDir = normalizeDockerMountPath(workspaceDir);
-  const deadline = Date.now() + Math.min(policy.perTestTimeoutMs, policy.globalTimeoutMs);
 
-  try {
-    await writeFile(sourceFilePath, params.code, "utf8");
+  const outcome = await executeInSandbox({
+    language: "CPP",
+    code: params.code,
+    input: "",
+    policy: params.policy,
+    context: params.context,
+  });
 
-    const compileRemainingMs = deadline - Date.now();
-    if (compileRemainingMs <= 0) {
-      return {
-        outcome: generateTimeoutOutcome(0, undefined, undefined, false),
-      };
-    }
-
-    const compileArgs = buildBaseDockerRunArgs({
-      containerName: compileContainerName,
-      workspacePath: normalizedWorkspaceDir,
-      policy,
-      userArg: policy.runAsNonRoot ? "1000:1000" : "0:0",
-      cidFilePath: normalizeDockerMountPath(compileCidFilePath),
-    });
-    compileArgs.push("gcc:13", "sh", "-lc", "g++ -std=c++17 /workspace/main.cpp -O2 -o /workspace/main.out");
-
-    activeExecutionContainers.add(compileContainerName);
-    const compileResult = await runProcess("docker", compileArgs, "", {
-      timeoutMs: compileRemainingMs,
-      containerNameToKill: compileContainerName,
-    });
-    activeExecutionContainers.delete(compileContainerName);
-
-    const compileContainerId = await readContainerIdFromCidFile(compileCidFilePath);
-    const outputTruncated = compileResult.stdoutTruncated || compileResult.stderrTruncated;
-
-    const outcome = mapProcessToOutcome(compileResult, compileContainerId, undefined, outputTruncated, true, compileResult.executionTimeMs);
-    
-    if (!outcome.success) {
-      return { outcome };
-    }
-
-    return {
-      outcome,
-      artifact: {
-        workspaceDir,
-        normalizedWorkspaceDir,
-        compileContainerId,
-        compileOutputTruncated: outputTruncated,
-        compileExecutionTimeMs: compileResult.executionTimeMs,
-      },
-    };
-  } catch (error) {
-    activeExecutionContainers.delete(compileContainerName);
-    
-    try {
-      await forceRemoveContainer(compileContainerName);
-    } catch {}
-
-    try {
-      await rm(workspaceDir, { recursive: true, force: true });
-    } catch {}
-
-    throw new ExecutionServiceError(`Failed to compile C++ submission: ${error instanceof Error ? error.message : String(error)}`, "INFRA_ERROR");
-  }
+  return {
+    outcome,
+    artifact: {
+      workspaceDir: params.code,
+      normalizedWorkspaceDir: "",
+      compileContainerId: "",
+      compileOutputTruncated: false,
+      compileExecutionTimeMs: outcome.executionTimeMs,
+    },
+  };
 }
-
 export async function runCompiledCppInDocker(params: {
   artifact: CompiledCppArtifact;
   input: string;
   policy?: ExecutionPolicyOverrides;
   context?: ExecutionRequest["context"];
 }): Promise<ExecutionOutcome> {
-  const policy = normalizeExecutionPolicy(params.policy);
-  const cidSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const runCidFilePath = path.join(params.artifact.workspaceDir, `run-${cidSuffix}.cid`);
-  const runContainerName = `${makeContainerName({ language: "CPP", code: "", input: params.input, context: params.context })}-run`;
 
-  const deadline = Date.now() + Math.min(policy.perTestTimeoutMs, policy.globalTimeoutMs);
-  const runRemainingMs = deadline - Date.now();
-  if (runRemainingMs <= 0) {
-    return generateTimeoutOutcome(0, params.artifact.compileContainerId, undefined, params.artifact.compileOutputTruncated);
-  }
-
-  try {
-    const runArgs = buildBaseDockerRunArgs({
-      containerName: runContainerName,
-      workspacePath: params.artifact.normalizedWorkspaceDir,
-      policy,
-      userArg: policy.runAsNonRoot ? "1000:1000" : "0:0",
-      cidFilePath: normalizeDockerMountPath(runCidFilePath),
-    });
-    runArgs.push("gcc:13", "/workspace/main.out");
-
-    activeExecutionContainers.add(runContainerName);
-    const runResult = await runProcess("docker", runArgs, params.input, {
-      timeoutMs: runRemainingMs,
-      containerNameToKill: runContainerName,
-    });
-
-    const runContainerId = await readContainerIdFromCidFile(runCidFilePath);
-    const outputTruncated = params.artifact.compileOutputTruncated || runResult.stdoutTruncated || runResult.stderrTruncated;
-
-    return mapProcessToOutcome(runResult, params.artifact.compileContainerId, runContainerId, outputTruncated, false, runResult.executionTimeMs);
-
-  } catch (error) {
-    throw new ExecutionServiceError(`Docker runtime error during run: ${error instanceof Error ? error.message : String(error)}`, "INFRA_ERROR");
-  } finally {
-    activeExecutionContainers.delete(runContainerName);
-    
-    try {
-      await forceRemoveContainer(runContainerName);
-    } catch {}
-
-    try {
-      await rm(runCidFilePath, { force: true });
-    } catch {}
-  }
+  return executeInSandbox({
+    language: "CPP",
+    code: params.artifact.workspaceDir,
+    input: params.input,
+    policy: params.policy,
+    context: params.context,
+  });
 }
