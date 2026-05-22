@@ -13,9 +13,13 @@ CodeForge is a queue-backed asynchronous multi-language code execution platform 
 ## Screenshots
 
 ![Dashboard Overview](docs/screenshots/dashboard.png)
+
 ![Code Editor](docs/screenshots/editor.png)
+
 ![Run Execution](docs/screenshots/ran.png)
+
 ![Submit Execution](docs/screenshots/submit.png)
+
 ![Execution Verdict](docs/screenshots/verdict.png)
 
 ---
