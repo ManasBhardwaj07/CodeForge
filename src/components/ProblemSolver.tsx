@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { CodeEditor } from "@/components/CodeEditor";
-import { getToken } from "@/lib/auth-client";
 
 const LANGUAGES = [
   { value: "C", label: "C", starter: '#include <stdio.h>\n\nint main() {\n    // Write your solution here\n    char buffer[1024];\n    while (fgets(buffer, sizeof(buffer), stdin)) {\n        fputs(buffer, stdout);\n    }\n    return 0;\n}\n' },
@@ -341,16 +340,9 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
         return;
       }
       try {
-        const token = getToken();
-        const res = await fetch(`/api/submissions/${submissionId}`, {
-          headers: token ? { authorization: `Bearer ${token}` } : {},
-        });
+        const res = await fetch(`/api/submissions/${submissionId}`);
         if (version !== executionVersion.current) {
           clearInterval(interval);
-          return;
-        }
-        if (res.status === 401 || res.status === 403) {
-          window.location.href = "/login";
           return;
         }
         if (!res.ok) {
@@ -387,15 +379,9 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     setSubmissionStatus(null);
 
     try {
-      const token = getToken();
-      if (!token) {
-        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
-        return;
-      }
-
       const res = await fetch("/api/submit", {
         method: "POST",
-        headers: { "Content-Type": "application/json", authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ problemId, code, language }),
       });
       const data = await res.json() as {
@@ -403,10 +389,6 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
         submission?: { id: string };
         error?: string;
       };
-      if (res.status === 401 || res.status === 403) {
-        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
-        return;
-      }
       if (!res.ok) throw new Error(data.error ?? "Submission failed");
 
       const sid = data.submissionId ?? data.submission?.id;
@@ -430,23 +412,13 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     setError(null);
 
     try {
-      const token = getToken();
-      if (!token) {
-        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
-        return;
-      }
-
       const runInput = sampleInput.trim().length > 0 ? sampleInput : "";
       const res = await fetch("/api/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json", authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ language, code, customInput: runInput }),
       });
       const data = await res.json() as { jobId?: string; error?: string };
-      if (res.status === 401 || res.status === 403) {
-        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
-        return;
-      }
       if (!res.ok) throw new Error(data.error ?? "Run failed");
       if (!data.jobId) throw new Error("Job ID missing");
 
@@ -469,15 +441,9 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     setError(null);
 
     try {
-      const token = getToken();
-      if (!token) {
-        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
-        return;
-      }
-
       const res = await fetch("/api/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json", authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ language, code, customInput }),
       });
       const data = await res.json() as { jobId?: string; error?: string };
@@ -510,10 +476,7 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
         return;
       }
       try {
-        const token = getToken();
-        const res = await fetch(`/api/run-status/${runJobId}`, {
-          headers: token ? { authorization: `Bearer ${token}` } : {},
-        });
+        const res = await fetch(`/api/run-status/${runJobId}`);
         if (version !== executionVersion.current) {
           clearInterval(interval);
           return;
@@ -556,10 +519,7 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
         return;
       }
       try {
-        const token = getToken();
-        const res = await fetch(`/api/run-status/${customRunJobId}`, {
-          headers: token ? { authorization: `Bearer ${token}` } : {},
-        });
+        const res = await fetch(`/api/run-status/${customRunJobId}`);
         if (version !== executionVersion.current) {
           clearInterval(interval);
           return;

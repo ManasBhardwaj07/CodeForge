@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getToken } from "@/lib/auth-client";
+
 
 const STATIC_STATS = [
   { label: "Languages", value: "5" },
@@ -44,8 +44,9 @@ export default function Home() {
 
   useEffect(() => {
     // Check auth on client only (after hydration)
-    const checkAuth = () => {
-      setAuthed(!!getToken());
+    const checkAuth = async () => {
+      const res = await fetch("/api/my-submissions");
+      setAuthed(res.ok);
     };
     
     // Use setTimeout to defer setState to after render

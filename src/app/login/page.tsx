@@ -1,7 +1,6 @@
 "use client";
 import { Suspense, useState } from "react";
 import Link from "next/link";
-import { setToken } from "@/lib/auth-client";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function LoginInner() {
@@ -49,8 +48,7 @@ function LoginInner() {
         setError(data.error ?? "Login failed");
         return;
       }
-      setToken(data.token);
-      window.dispatchEvent(new Event("storage"));
+      window.location.href = safeNext;
       router.replace(safeNext);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unknown error");

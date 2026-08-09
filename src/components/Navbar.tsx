@@ -3,38 +3,11 @@ import Link from "next/link";
 import React, { useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 
-function parseTokenState(token: string | null): { isAuthenticated: boolean; username: string | null } {
-  if (!token) return { isAuthenticated: false, username: null };
-  try {
-    const parts = token.split(".");
-    const part = parts[1];
-    if (!part) return { isAuthenticated: true, username: "User" };
-    const payload = JSON.parse(atob(part)) as { username?: string; email?: string };
-    return { isAuthenticated: true, username: payload.username ?? payload.email ?? "User" };
-  } catch {
-    return { isAuthenticated: true, username: "User" };
-  }
-}
-
-function readLocalStorage(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("token");
-}
-
-export function Navbar() {
+export function Navbar({ user }: { user: { userId: string; email: string; username: string } | null }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
-  const token = useSyncExternalStore(
-    (callback) => {
-      if (typeof window === "undefined") return () => undefined;
-      window.addEventListener("storage", callback);
-      return () => window.removeEventListener("storage", callback);
-    },
-    () => readLocalStorage(),
-    () => null,
-  );
-
-  const { isAuthenticated, username } = parseTokenState(token);
+  const isAuthenticated = !!user;
+  const username = user?.username ?? user?.email ?? "User";
 
   const nextParam = encodeURIComponent(pathname || "/");
 

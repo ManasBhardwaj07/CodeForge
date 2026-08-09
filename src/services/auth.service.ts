@@ -75,13 +75,13 @@ export function generateToken(payload: AuthTokenPayload): string {
   return jwt.sign(payload, env.jwtSecret, { expiresIn: JWT_EXPIRES_IN });
 }
 
-export function verifyToken(token: string): { userId: string; email: string } {
+export function verifyToken(token: string): { userId: string; email: string; username: string } {
   try {
     const decoded = jwt.verify(token, env.jwtSecret) as AuthTokenPayload;
     if (!decoded.userId || !decoded.email) {
       throw new AuthServiceError("Invalid token payload", 401, "INVALID_TOKEN_PAYLOAD");
     }
-    return { userId: decoded.userId, email: decoded.email };
+    return { userId: decoded.userId, email: decoded.email, username: decoded.username || (decoded.email.split('@')[0] ?? "User") };
   } catch {
     throw new AuthServiceError("Invalid or expired token", 401, "INVALID_OR_EXPIRED_TOKEN");
   }

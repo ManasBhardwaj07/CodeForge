@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { getToken } from "@/lib/auth-client";
 
 type Submission = {
   id: string;
@@ -51,12 +50,8 @@ export default function SubmissionsPage() {
 
   useEffect(() => {
     async function load() {
-      const token = getToken();
-      if (!token) { window.location.href = "/login"; return; }
       try {
-        const res = await fetch("/api/my-submissions", {
-          headers: { authorization: `Bearer ${token}` },
-        });
+        const res = await fetch("/api/my-submissions");
         if (res.status === 401 || res.status === 403) { window.location.href = "/login"; return; }
         if (!res.ok) throw new Error("Failed to fetch");
         const data = await res.json() as unknown;

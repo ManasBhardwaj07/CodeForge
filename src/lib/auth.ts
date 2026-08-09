@@ -1,4 +1,5 @@
 import { AuthServiceError, verifyToken } from "@/services/auth.service";
+import { cookies } from "next/headers";
 
 export class AuthorizationError extends Error {
   statusCode: number;
@@ -15,26 +16,22 @@ export class AuthorizationError extends Error {
 export type AuthContext = {
   userId: string;
   email: string;
+  username: string;
 };
 
-function getBearerToken(request: Request): string {
-  const authHeader = request.headers.get("authorization");
+async function getToken(): Promise<string> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("token")?.value;
 
-  if (!authHeader) {
-    throw new AuthorizationError("Missing Authorization header", "AUTH_HEADER_MISSING", 401);
-  }
-
-  const [scheme, token] = authHeader.split(" ");
-
-  if (scheme !== "Bearer" || !token) {
-    throw new AuthorizationError("Malformed Authorization header", "AUTH_HEADER_MALFORMED", 401);
+  if (!token) {
+    throw new AuthorizationError("Missing authentication token", "AUTH_TOKEN_MISSING", 401);
   }
 
   return token;
 }
 
-export async function requireAuth(request: Request): Promise<AuthContext> {
-  const token = getBearerToken(request);
+export async function requireAuth(request?: Request): Promise<AuthContext> {
+  const token = await getToken();
 
   try {
     return verifyToken(token);
