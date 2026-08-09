@@ -5,11 +5,11 @@ import { CodeEditor } from "@/components/CodeEditor";
 import { getToken } from "@/lib/auth-client";
 
 const LANGUAGES = [
-  { value: "JAVASCRIPT", label: "JavaScript", starter: '// Write your solution here\n\nconst readline = require("readline");\nconst rl = readline.createInterface({ input: process.stdin });\nrl.on("line", (line) => {\n  // process input\n  console.log(line);\n  rl.close();\n});\n' },
-  { value: "CPP", label: "C++", starter: '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n    \n    return 0;\n}\n' },
-  { value: "PYTHON", label: "Python", starter: '# Write your solution here\n\nimport sys\n\nfor line in sys.stdin:\n    line = line.strip()\n    if not line:\n        continue\n    print(line)\n' },
-  { value: "JAVA", label: "Java", starter: 'import java.io.*;\nimport java.util.*;\n\npublic class Main {\n  public static void main(String[] args) throws Exception {\n    BufferedReader br = new BufferedReader(new InputStreamReader(System.in));\n    String line;\n    while ((line = br.readLine()) != null) {\n      if (line.isEmpty()) continue;\n      System.out.println(line);\n    }\n  }\n}\n' },
   { value: "C", label: "C", starter: '#include <stdio.h>\n\nint main() {\n    // Write your solution here\n    char buffer[1024];\n    while (fgets(buffer, sizeof(buffer), stdin)) {\n        fputs(buffer, stdout);\n    }\n    return 0;\n}\n' },
+  { value: "CPP", label: "C++", starter: '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n    \n    return 0;\n}\n' },
+  { value: "JAVA", label: "Java", starter: 'import java.io.*;\nimport java.util.*;\n\npublic class Main {\n  public static void main(String[] args) throws Exception {\n    BufferedReader br = new BufferedReader(new InputStreamReader(System.in));\n    String line;\n    while ((line = br.readLine()) != null) {\n      if (line.isEmpty()) continue;\n      System.out.println(line);\n    }\n  }\n}\n' },
+  { value: "JAVASCRIPT", label: "JavaScript", starter: '// Write your solution here\n\nconst readline = require("readline");\nconst rl = readline.createInterface({ input: process.stdin });\nrl.on("line", (line) => {\n  // process input\n  console.log(line);\n  rl.close();\n});\n' },
+  { value: "PYTHON", label: "Python", starter: '# Write your solution here\n\nimport sys\n\nfor line in sys.stdin:\n    line = line.strip()\n    if not line:\n        continue\n    print(line)\n' },
 ];
 
 const TERMINAL = new Set(["COMPLETED", "FAILED"]);
@@ -250,6 +250,9 @@ function ResultModal({
 
 export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: string; sampleInput?: string }) {
   const defaultLang = LANGUAGES[0]!;
+  const executionVersion = useRef(0);
+  const submissionLock = useRef(false);
+
   const [language, setLanguage] = useState(defaultLang.value);
   const [code, setCode] = useState(defaultLang.starter);
   const [loading, setLoading] = useState(false);
@@ -278,8 +281,22 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
   const [customRunStatus, setCustomRunStatus] = useState<string | null>(null);
   const [customRunResult, setCustomRunResult] = useState<RunResult | null>(null);
 
+  const resetExecutionState = () => {
+    executionVersion.current++;
+    setRunJobId(null);
+    setRunResult(null);
+    setRunStatus(null);
+    setCustomRunJobId(null);
+    setCustomRunResult(null);
+    setCustomRunStatus(null);
+    setSubmissionId(null);
+    setSubmission(null);
+    setSubmissionStatus(null);
+  };
+
   // Update starter code when language changes
   const handleLangChange = (lang: string) => {
+    resetExecutionState();
     setLanguage(lang);
     const entry = LANGUAGES.find((l) => l.value === lang);
     if (entry) {
@@ -316,18 +333,33 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
 
   useEffect(() => {
     if (!submissionId) return;
+    const version = executionVersion.current;
     setPolling(true);
     const interval = setInterval(async () => {
+      if (version !== executionVersion.current) {
+        clearInterval(interval);
+        return;
+      }
       try {
         const token = getToken();
         const res = await fetch(`/api/submissions/${submissionId}`, {
           headers: token ? { authorization: `Bearer ${token}` } : {},
         });
+        if (version !== executionVersion.current) {
+          clearInterval(interval);
+          return;
+        }
         if (res.status === 401 || res.status === 403) {
           window.location.href = "/login";
           return;
         }
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (res.status >= 500 || res.status === 404) {
+            clearInterval(interval);
+            setPolling(false);
+          }
+          return;
+        }
         const data = await res.json() as { submission?: Submission } | Submission;
         const sub: Submission = (data as { submission?: Submission }).submission ?? (data as Submission);
         setSubmission(sub);
@@ -346,6 +378,8 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submissionLock.current) return;
+    submissionLock.current = true;
     setLoading(true);
     setError(null);
     setSubmission(null);
@@ -383,10 +417,13 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
       setError(err instanceof Error ? err.message : "Submission failed");
     } finally {
       setLoading(false);
+      submissionLock.current = false;
     }
   }
 
   async function handleRun() {
+    if (submissionLock.current) return;
+    submissionLock.current = true;
     setRunLoading(true);
     setRunResult(null);
     setRunStatus(null);
@@ -418,10 +455,14 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Run failed");
       setRunLoading(false);
+    } finally {
+      submissionLock.current = false;
     }
   }
 
   async function handleCustomInputRun() {
+    if (submissionLock.current) return;
+    submissionLock.current = true;
     setCustomRunLoading(true);
     setCustomRunResult(null);
     setCustomRunStatus(null);
@@ -452,20 +493,38 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Run failed");
       setCustomRunLoading(false);
+    } finally {
+      submissionLock.current = false;
     }
   }
 
   // Poll run result (quick run)
   useEffect(() => {
     if (!runJobId) return;
+    const version = executionVersion.current;
     setRunPolling(true);
     setRunLoading(false);
     const interval = setInterval(async () => {
+      if (version !== executionVersion.current) {
+        clearInterval(interval);
+        return;
+      }
       try {
         const token = getToken();
         const res = await fetch(`/api/run-status/${runJobId}`, {
           headers: token ? { authorization: `Bearer ${token}` } : {},
         });
+        if (version !== executionVersion.current) {
+          clearInterval(interval);
+          return;
+        }
+        if (!res.ok) {
+          if (res.status >= 500 || res.status === 404) {
+            clearInterval(interval);
+            setRunPolling(false);
+          }
+          return;
+        }
         const data = await res.json();
         if (res.ok) {
           if (data.status) {
@@ -488,14 +547,30 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
   // Poll custom input run result
   useEffect(() => {
     if (!customRunJobId) return;
+    const version = executionVersion.current;
     setCustomRunPolling(true);
     setCustomRunLoading(false);
     const interval = setInterval(async () => {
+      if (version !== executionVersion.current) {
+        clearInterval(interval);
+        return;
+      }
       try {
         const token = getToken();
         const res = await fetch(`/api/run-status/${customRunJobId}`, {
           headers: token ? { authorization: `Bearer ${token}` } : {},
         });
+        if (version !== executionVersion.current) {
+          clearInterval(interval);
+          return;
+        }
+        if (!res.ok) {
+          if (res.status >= 500 || res.status === 404) {
+            clearInterval(interval);
+            setCustomRunPolling(false);
+          }
+          return;
+        }
         const data = await res.json();
         if (res.ok) {
           if (data.status) {
@@ -536,11 +611,12 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
             <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#94a3b8" }}>Editor</span>
           </div>
           {/* Language selector */}
-          <select
-            value={language}
-            onChange={(e) => handleLangChange(e.target.value)}
-            className="forge-select text-xs font-medium px-2.5 py-1 rounded-md border transition-colors"
-            style={{
+          <div className="relative">
+            <select
+              value={language}
+              onChange={(e) => handleLangChange(e.target.value)}
+              className="forge-select text-xs font-medium pl-3 pr-8 py-1.5 rounded-md border transition-colors appearance-none cursor-pointer hover:border-cyan-500/50 focus:border-cyan-400"
+              style={{
                 background: "#0d1526",
                 border: "1px solid #1e3058",
                 color: "#e2e8f0",
@@ -550,6 +626,12 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
             >
               {LANGUAGES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
             </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
+              <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+              </svg>
+            </div>
+          </div>
         </div>
 
         {/* Tabs: Main Editor | Run with Custom Input */}
@@ -601,8 +683,14 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
                       <span className="text-xs font-semibold" style={{ color: "#cbd5e1" }}>Output</span>
                       <button
                         onClick={() => setRunResult(null)}
-                        className="text-xs px-2 py-1 rounded transition-colors"
-                        style={{ color: "#64748b", background: "rgba(100,116,139,0.1)" }}
+                        className="text-xs px-4 py-1.5 rounded-md transition-all font-semibold hover:bg-[#1e3058] hover:text-[#e2e8f0] active:scale-95"
+                        style={{
+                          color: "#94a3b8",
+                          background: "#0d1526",
+                          border: "1px solid #1e3058",
+                          boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                        }}
+                        title="Close Output"
                       >
                         Close
                       </button>
