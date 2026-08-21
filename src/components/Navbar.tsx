@@ -8,6 +8,7 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
   const [menuOpen, setMenuOpen] = useState(false);
   const isAuthenticated = !!user;
   const username = user?.username ?? user?.email ?? "User";
+  const isAuthPage = pathname === "/login" || pathname === "/register";
 
   const nextParam = encodeURIComponent(pathname || "/");
 
@@ -43,6 +44,7 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
         </Link>
 
         {/* Desktop nav links */}
+        {!isAuthPage && (
         <div className="hidden sm:flex items-center gap-1">
           {navLinks.map(({ href, label }) => {
             const active = pathname.startsWith(href);
@@ -66,8 +68,10 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
             );
           })}
         </div>
+        )}
 
         {/* Auth area */}
+        {!isAuthPage && (
         <div className="flex items-center gap-3">
           {isAuthenticated ? (
             <>
@@ -87,10 +91,14 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
               <button
                 className="forge-btn-ghost text-sm"
                 style={{ borderColor: "rgba(244,63,94,0.4)", color: "#f43f5e", padding: "0.35rem 1rem" }}
-                onClick={() => {
+                onClick={async () => {
+                  try {
+                    await fetch("/api/auth/logout", { method: "POST" });
+                  } catch (e) {
+                    console.error("Logout failed", e);
+                  }
                   localStorage.removeItem("token");
-                  window.dispatchEvent(new Event("storage"));
-                  window.location.href = `/login?next=${nextParam}`;
+                  window.location.href = "/login";
                 }}
               >
                 Logout
@@ -129,10 +137,11 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
             </svg>
           </button>
         </div>
+        )}
       </div>
 
       {/* Mobile dropdown */}
-      {menuOpen && (
+      {!isAuthPage && menuOpen && (
         <div
           className="sm:hidden animate-slide-down px-4 pb-4 flex flex-col gap-2"
           style={{ borderTop: "1px solid #1e3058", background: "#060b18" }}

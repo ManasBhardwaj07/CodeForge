@@ -700,17 +700,28 @@ const worker = new Worker<JobData>(
   },
 );
 
+let lastJobActivityAt = Date.now();
+
+function updateJobActivity() {
+  lastJobActivityAt = Date.now();
+}
+
 worker.on("active", () => {
   activeJobs += 1;
+  updateJobActivity();
 });
 
 worker.on("completed", () => {
   activeJobs = Math.max(0, activeJobs - 1);
+  updateJobActivity();
 });
 
 void recoverStaleRunningSubmissions();
 
 const staleRecoveryTimer = setInterval(() => {
+  if (Date.now() - lastJobActivityAt > 15 * 60 * 1000) {
+    return;
+  }
   void recoverStaleRunningSubmissions();
 }, STALE_RECOVERY_INTERVAL_MS);
 
@@ -727,6 +738,7 @@ worker.on("ready", () => {
 
 worker.on("failed", async (job, error) => {
   activeJobs = Math.max(0, activeJobs - 1);
+  updateJobActivity();
   if (!job) {
     logEvent("error", "Failed job with no data", { error: error.message });
     return;

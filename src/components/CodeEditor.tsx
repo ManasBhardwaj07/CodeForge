@@ -1,5 +1,5 @@
 "use client";
-import React, { useRef } from "react";
+import React, { useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
@@ -47,14 +47,23 @@ export function CodeEditor({
   onChange,
   language,
   height = "100%",
+  onRun,
+  onSubmit,
 }: {
   value: string;
   onChange: (val: string) => void;
   language: string;
   height?: string;
+  onRun?: () => void;
+  onSubmit?: () => void;
 }) {
   const monacoLang = LANG_MAP[language] ?? "javascript";
   const editorRef = useRef<unknown>(null);
+
+  const latestCallbacks = useRef({ onRun, onSubmit });
+  useEffect(() => {
+    latestCallbacks.current = { onRun, onSubmit };
+  }, [onRun, onSubmit]);
 
   return (
     <div className="monaco-wrapper h-full" style={{ height }}>
@@ -65,7 +74,19 @@ export function CodeEditor({
         theme="vs-dark"
         options={EDITOR_OPTIONS}
         onChange={(v) => onChange(v ?? "")}
-        onMount={(editor) => { editorRef.current = editor; }}
+        onMount={(editor, monaco) => {
+          editorRef.current = editor;
+          // Ctrl+Enter → Run Code (only fires when editor has focus)
+          editor.addCommand(
+            monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+            () => latestCallbacks.current.onRun?.()
+          );
+          // Ctrl+Shift+Enter → Submit (only fires when editor has focus)
+          editor.addCommand(
+            monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter,
+            () => latestCallbacks.current.onSubmit?.()
+          );
+        }}
       />
     </div>
   );

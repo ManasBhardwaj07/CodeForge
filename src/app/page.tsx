@@ -127,16 +127,6 @@ export default function Home() {
           <Link href="/problems" className="forge-btn-primary text-base" style={{ padding: "0.65rem 1.75rem" }}>
             Browse Problems →
           </Link>
-          {authed === false && (
-            <Link href="/register" className="forge-btn-ghost text-base" style={{ padding: "0.65rem 1.75rem" }}>
-              Create Account
-            </Link>
-          )}
-          {authed === true && (
-            <Link href="/submissions" className="forge-btn-ghost text-base" style={{ padding: "0.65rem 1.75rem" }}>
-              My Submissions
-            </Link>
-          )}
         </div>
       </div>
 

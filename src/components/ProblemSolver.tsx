@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { CodeEditor } from "@/components/CodeEditor";
+import { Group, Panel, Separator, GroupImperativeHandle, Layout } from "react-resizable-panels";
 
 const LANGUAGES = [
   { value: "C", label: "C", starter: '#include <stdio.h>\n\nint main() {\n    // Write your solution here\n    char buffer[1024];\n    while (fgets(buffer, sizeof(buffer), stdin)) {\n        fputs(buffer, stdout);\n    }\n    return 0;\n}\n' },
@@ -261,42 +262,63 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [submissionStatus, setSubmissionStatus] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
-  
-  // Tab state: 'editor' or 'custom-input'
-  const [activeTab, setActiveTab] = useState<'editor' | 'custom-input'>('editor');
-  
-  // Run Code state (for quick run in editor tab)
+
+  // Terminal tab state: 'testcases' shows stdin input, 'output' shows run result
+  const [terminalTab, setTerminalTab] = useState<'testcases' | 'output'>('testcases');
+  const panelGroupRef = useRef<GroupImperativeHandle>(null);
+
+  const [isMounted, setIsMounted] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    const mediaQuery = window.matchMedia("(max-width: 639px)");
+    const handleChange = () => setIsMobile(mediaQuery.matches);
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  // Persistence: Restore layout from localStorage imperatively on mount
+  useEffect(() => {
+    try {
+      const savedLayout = localStorage.getItem("workspace-layout");
+      if (savedLayout) {
+        panelGroupRef.current?.setLayout(JSON.parse(savedLayout));
+      }
+    } catch (e) {
+      console.error("Failed to restore layout", e);
+    }
+  }, []);
+
+  const handleLayoutChange = (layout: Layout) => {
+    localStorage.setItem("workspace-layout", JSON.stringify(layout));
+  };
+
+  // Run Code state (unified — runs against customInput textarea)
+  const [customInput, setCustomInput] = useState(sampleInput);
   const [runJobId, setRunJobId] = useState<string | null>(null);
   const [runLoading, setRunLoading] = useState(false);
   const [runPolling, setRunPolling] = useState(false);
   const [runStatus, setRunStatus] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
-  
-  // Custom input state (for second tab)
-  const [customInput, setCustomInput] = useState(sampleInput);
-  const [customRunJobId, setCustomRunJobId] = useState<string | null>(null);
-  const [customRunLoading, setCustomRunLoading] = useState(false);
-  const [customRunPolling, setCustomRunPolling] = useState(false);
-  const [customRunStatus, setCustomRunStatus] = useState<string | null>(null);
-  const [customRunResult, setCustomRunResult] = useState<RunResult | null>(null);
+
+
 
   const resetExecutionState = () => {
     executionVersion.current++;
     setRunJobId(null);
     setRunResult(null);
     setRunStatus(null);
-    setCustomRunJobId(null);
-    setCustomRunResult(null);
-    setCustomRunStatus(null);
     setSubmissionId(null);
     setSubmission(null);
     setSubmissionStatus(null);
   };
 
-  // Update starter code when language changes
   const handleLangChange = (lang: string) => {
     resetExecutionState();
     setLanguage(lang);
+    setTerminalTab('testcases');
     const entry = LANGUAGES.find((l) => l.value === lang);
     if (entry) {
       const stored = typeof window === "undefined"
@@ -304,6 +326,14 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
         : localStorage.getItem(`codeforge:draft:${problemId}:${lang}`);
       setCode(stored ?? entry.starter);
     }
+  };
+
+  const handleResetCode = () => {
+    if (!window.confirm("Reset to default template? Your draft will be cleared.")) return;
+    const entry = LANGUAGES.find((l) => l.value === language);
+    const starter = entry ? entry.starter : "";
+    setCode(starter);
+    localStorage.removeItem(`codeforge:draft:${problemId}:${language}`);
   };
 
   useEffect(() => {
@@ -318,7 +348,7 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     } else if (sampleInput) {
       setCustomInput((prev) => (sampleInput !== prev ? sampleInput : prev));
     }
-  }, [problemId, language, sampleInput]);
+  }, [problemId, language, sampleInput, setCustomInput]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -376,7 +406,7 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     setError(null);
     setSubmission(null);
     setSubmissionId(null);
-    setSubmissionStatus(null);
+    setSubmissionStatus("QUEUED");
 
     try {
       const res = await fetch("/api/submit", {
@@ -408,42 +438,16 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     submissionLock.current = true;
     setRunLoading(true);
     setRunResult(null);
-    setRunStatus(null);
+    setRunStatus("QUEUED");
     setError(null);
-
-    try {
-      const runInput = sampleInput.trim().length > 0 ? sampleInput : "";
-      const res = await fetch("/api/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language, code, customInput: runInput }),
-      });
-      const data = await res.json() as { jobId?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Run failed");
-      if (!data.jobId) throw new Error("Job ID missing");
-
-      setRunJobId(data.jobId);
-      setRunStatus("QUEUED");
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Run failed");
-      setRunLoading(false);
-    } finally {
-      submissionLock.current = false;
-    }
-  }
-
-  async function handleCustomInputRun() {
-    if (submissionLock.current) return;
-    submissionLock.current = true;
-    setCustomRunLoading(true);
-    setCustomRunResult(null);
-    setCustomRunStatus(null);
-    setError(null);
+    // Switch to Output tab so user sees progress immediately
+    setTerminalTab('output');
 
     try {
       const res = await fetch("/api/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Uses the live customInput textarea (pre-filled with sampleInput)
         body: JSON.stringify({ language, code, customInput }),
       });
       const data = await res.json() as { jobId?: string; error?: string };
@@ -454,11 +458,11 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
       if (!res.ok) throw new Error(data.error ?? "Run failed");
       if (!data.jobId) throw new Error("Job ID missing");
 
-      setCustomRunJobId(data.jobId);
-      setCustomRunStatus("QUEUED");
+      setRunJobId(data.jobId);
+      setRunStatus("QUEUED");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Run failed");
-      setCustomRunLoading(false);
+      setRunLoading(false);
     } finally {
       submissionLock.current = false;
     }
@@ -507,48 +511,7 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     return () => clearInterval(interval);
   }, [runJobId]);
 
-  // Poll custom input run result
-  useEffect(() => {
-    if (!customRunJobId) return;
-    const version = executionVersion.current;
-    setCustomRunPolling(true);
-    setCustomRunLoading(false);
-    const interval = setInterval(async () => {
-      if (version !== executionVersion.current) {
-        clearInterval(interval);
-        return;
-      }
-      try {
-        const res = await fetch(`/api/run-status/${customRunJobId}`);
-        if (version !== executionVersion.current) {
-          clearInterval(interval);
-          return;
-        }
-        if (!res.ok) {
-          if (res.status >= 500 || res.status === 404) {
-            clearInterval(interval);
-            setCustomRunPolling(false);
-          }
-          return;
-        }
-        const data = await res.json();
-        if (res.ok) {
-          if (data.status) {
-            setCustomRunStatus(data.status);
-          }
-          if (data.status === 'COMPLETED' || data.status === 'FAILED') {
-            setCustomRunResult(data);
-            setCustomRunPolling(false);
-            clearInterval(interval);
-          }
-        }
-      } catch {
-        clearInterval(interval);
-        setCustomRunPolling(false);
-      }
-    }, POLL_MS);
-    return () => clearInterval(interval);
-  }, [customRunJobId]);
+
 
   const isBusy = loading || polling;
 
@@ -559,7 +522,7 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
       )}
 
       <div className="flex flex-col h-full">
-        {/* Toolbar: Just Language Selector */}
+        {/* Toolbar: Language Selector + Reset Code */}
         <div
           className="flex items-center justify-between px-4 py-2.5 shrink-0"
           style={{ borderBottom: "1px solid #1e3058", background: "rgba(0,0,0,0.3)" }}
@@ -570,182 +533,275 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
             </svg>
             <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#94a3b8" }}>Editor</span>
           </div>
-          {/* Language selector */}
-          <div className="relative">
-            <select
-              value={language}
-              onChange={(e) => handleLangChange(e.target.value)}
-              className="forge-select text-xs font-medium pl-3 pr-8 py-1.5 rounded-md border transition-colors appearance-none cursor-pointer hover:border-cyan-500/50 focus:border-cyan-400"
-              style={{
-                background: "#0d1526",
-                border: "1px solid #1e3058",
-                color: "#e2e8f0",
-                outline: "none",
-              }}
+          <div className="flex items-center gap-2">
+            {/* Reset to boilerplate */}
+            <button
+              onClick={handleResetCode}
               disabled={isBusy}
+              className="text-slate-400 hover:text-slate-200 transition-colors p-1.5 rounded-md hover:bg-slate-800"
+              title="Reset to default code (Ctrl+Shift+R)"
             >
-              {LANGUAGES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
-              <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-                <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
               </svg>
+            </button>
+            {/* Language selector */}
+            <div className="relative">
+              <select
+                value={language}
+                onChange={(e) => handleLangChange(e.target.value)}
+                className="forge-select text-xs font-medium pl-3 pr-8 py-1.5 rounded-md border transition-colors appearance-none cursor-pointer hover:border-cyan-500/50 focus:border-cyan-400"
+                style={{
+                  background: "#0d1526",
+                  border: "1px solid #1e3058",
+                  color: "#e2e8f0",
+                  outline: "none",
+                }}
+                disabled={isBusy}
+              >
+                {LANGUAGES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
+                <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                  <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                </svg>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Tabs: Main Editor | Run with Custom Input */}
-        <div className="flex shrink-0" style={{ borderBottom: "1px solid #1e3058", background: "rgba(0,0,0,0.2)" }}>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('editor');
-              setRunJobId(null);
-              setRunResult(null);
-            }}
-            className="px-4 py-2 text-xs font-medium transition-colors"
-            style={{
-              color: activeTab === 'editor' ? '#22d3ee' : '#64748b',
-              borderBottom: activeTab === 'editor' ? '2px solid #22d3ee' : 'none',
-              background: activeTab === 'editor' ? 'rgba(34,211,238,0.05)' : 'transparent',
-            }}
-          >
-            Code Editor
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('custom-input')}
-            className="px-4 py-2 text-xs font-medium transition-colors"
-            style={{
-              color: activeTab === 'custom-input' ? '#22d3ee' : '#64748b',
-              borderBottom: activeTab === 'custom-input' ? '2px solid #22d3ee' : 'none',
-              background: activeTab === 'custom-input' ? 'rgba(34,211,238,0.05)' : 'transparent',
-            }}
-          >
-            Run with Custom Input
-          </button>
-        </div>
+        {/* Main Content Area: Resizable vertical split */}
+        <div className="flex-1 min-h-0 relative flex flex-col">
+          {!(isMounted && isMobile) ? (
+          <div className="flex flex-1 min-h-0">
+            <Group
+              orientation="vertical"
+              className="h-full w-full"
+              groupRef={panelGroupRef}
+              onLayoutChange={handleLayoutChange}
+            >
+              {/* Top Panel: Monaco Editor */}
+              <Panel defaultSize={65} minSize={20} className="flex flex-col">
+                <CodeEditor
+                  value={code}
+                  onChange={setCode}
+                  language={language}
+                  height="100%"
+                  onRun={handleRun}
+                  onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
+                />
+              </Panel>
 
-        {/* Main Content Area */}
-        <div className="flex-1 min-h-0 flex">
-          {activeTab === 'editor' ? (
-            <>
-              {/* Code Editor (left side, full or split) */}
-              <div className={`flex flex-col ${runResult ? 'w-1/2' : 'w-full'}`} style={{ borderRight: runResult ? '1px solid #1e3058' : 'none' }}>
-                <CodeEditor value={code} onChange={setCode} language={language} height="100%" />
-              </div>
+              {/* Resize handle */}
+              <Separator className="h-1.5 bg-[#0d1526] hover:bg-[#1e3058] active:bg-[#22d3ee]/30 transition-colors cursor-row-resize flex flex-row justify-center items-center group z-10 relative">
+                <div className="w-6 h-0.5 rounded-full bg-[#334155] group-hover:bg-[#94a3b8] transition-colors" />
+              </Separator>
 
-              {/* Run Output Panel (right side, when running) */}
-              {runResult && (
-                <div className="w-1/2 flex flex-col overflow-hidden" style={{ background: "#0f172a" }}>
-                  <div className="px-4 py-3 border-b" style={{ borderColor: "#1e3058" }}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold" style={{ color: "#cbd5e1" }}>Output</span>
+              {/* Bottom Panel: Terminal (Testcases + Output tabs) */}
+              <Panel defaultSize={35} minSize={10} className="flex flex-col bg-[#0f172a] overflow-hidden">
+                {/* Terminal tab bar */}
+                <div className="flex shrink-0" style={{ borderBottom: "1px solid #1e3058", background: "rgba(0,0,0,0.2)" }}>
+                  <button
+                    type="button"
+                    onClick={() => setTerminalTab('testcases')}
+                    className="px-4 py-2 text-xs font-semibold border-b-2 transition-colors"
+                    style={{
+                      color: terminalTab === 'testcases' ? '#22d3ee' : '#64748b',
+                      borderBottomColor: terminalTab === 'testcases' ? '#22d3ee' : 'transparent',
+                    }}
+                  >
+                    Testcases
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTerminalTab('output')}
+                    className="px-4 py-2 text-xs font-semibold border-b-2 transition-colors"
+                    style={{
+                      color: terminalTab === 'output' ? '#22d3ee' : '#64748b',
+                      borderBottomColor: terminalTab === 'output' ? '#22d3ee' : 'transparent',
+                    }}
+                  >
+                    Output
+                  </button>
+                  {runResult && (
+                    <div className="ml-auto flex items-center pr-2">
                       <button
-                        onClick={() => setRunResult(null)}
-                        className="text-xs px-4 py-1.5 rounded-md transition-all font-semibold hover:bg-[#1e3058] hover:text-[#e2e8f0] active:scale-95"
-                        style={{
-                          color: "#94a3b8",
-                          background: "#0d1526",
-                          border: "1px solid #1e3058",
-                          boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
-                        }}
-                        title="Close Output"
+                        onClick={() => { setRunResult(null); setRunStatus(null); setTerminalTab('testcases'); }}
+                        className="text-xs px-2 py-1 transition-colors hover:text-[#f8fafc]"
+                        style={{ color: "#64748b" }}
+                        title="Clear output"
                       >
-                        Close
+                        ✕
                       </button>
                     </div>
-                  </div>
-                  <div className="flex-1 overflow-auto">
-                    <div className="p-4 space-y-3">
-                      <div>
-                        <div className="text-xs font-semibold mb-2" style={{ color: "#94a3b8" }}>Stdout</div>
-                        <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "#1e293b", color: "#cbd5e1", maxHeight: "150px" }}>
-                          {runResult.stdout || "(empty)"}
-                        </pre>
-                      </div>
-                      {runResult.stderr && (
-                        <div>
-                          <div className="text-xs font-semibold mb-2" style={{ color: "#f43f5e" }}>Stderr</div>
-                          <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "rgba(244,63,94,0.1)", color: "#f43f5e", maxHeight: "150px" }}>
-                            {runResult.stderr}
-                          </pre>
-                        </div>
-                      )}
-                      {runResult.executionTimeMs != null && (
-                        <div className="text-xs" style={{ color: "#64748b" }}>
-                          Execution Time: <span style={{ color: "#cbd5e1" }}>{runResult.executionTimeMs}ms</span>
-                        </div>
-                      )}
-                      {runResult.error && (
-                        <div className="text-xs" style={{ color: "#f43f5e" }}>
-                          {runResult.error}
-                        </div>
-                      )}
-                      {runResult.outputTruncated && (
-                        <div className="text-xs" style={{ color: "#f59e0b" }}>
-                          Output truncated due to size limits.
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  )}
                 </div>
-              )}
-            </>
+
+                {/* Terminal content */}
+                <div className="flex-1 overflow-auto p-4">
+                  {terminalTab === 'testcases' ? (
+                    // Stdin textarea — editable, defaults to sampleInput
+                    <textarea
+                      value={customInput}
+                      onChange={(e) => setCustomInput(e.target.value)}
+                      placeholder="Enter stdin for your code…"
+                      className="w-full h-full p-3 rounded-lg font-mono text-sm resize-none focus:outline-none focus:border-[#22d3ee]"
+                      style={{
+                        background: "#1e293b",
+                        border: "1px solid #334155",
+                        color: "#e2e8f0",
+                        minHeight: "80px",
+                      }}
+                    />
+                  ) : (
+                    // Output tab — shows spinner while running, then output
+                    !runResult ? (
+                      (runStatus || runLoading) ? (
+                        <div className="h-full w-full flex flex-col items-center justify-center opacity-80">
+                          <svg className="animate-spin-forge w-8 h-8 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                          </svg>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-500 italic h-full flex items-center justify-center">
+                          Run your code to see output here.
+                        </div>
+                      )
+                    ) : (
+                      <div className="space-y-3">
+                        {runResult && (
+                          <>
+                            <div>
+                              <div className="text-xs font-semibold mb-2" style={{ color: "#94a3b8" }}>Stdout</div>
+                              <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "#1e293b", color: "#cbd5e1" }}>
+                                {runResult.stdout || "(empty)"}
+                              </pre>
+                            </div>
+                            {runResult.stderr && (
+                              <div>
+                                <div className="text-xs font-semibold mb-2" style={{ color: "#f43f5e" }}>Stderr</div>
+                                <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "rgba(244,63,94,0.1)", color: "#f43f5e" }}>
+                                  {runResult.stderr}
+                                </pre>
+                              </div>
+                            )}
+                            {runResult.executionTimeMs != null && (
+                              <div className="text-xs" style={{ color: "#64748b" }}>
+                                Execution Time: <span style={{ color: "#cbd5e1" }}>{runResult.executionTimeMs}ms</span>
+                              </div>
+                            )}
+                            {runResult.error && (
+                              <div className="text-xs" style={{ color: "#f43f5e" }}>{runResult.error}</div>
+                            )}
+                            {runResult.outputTruncated && (
+                              <div className="text-xs" style={{ color: "#f59e0b" }}>Output truncated due to size limits.</div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )
+                  )}
+                </div>
+              </Panel>
+            </Group>
+          </div>
           ) : (
-            /* Custom Input Tab */
-            <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#0f172a" }}>
-              <div className="flex-1 flex flex-col p-4 space-y-3 overflow-auto">
-                <div>
-                  <label className="block text-sm font-medium mb-2" style={{ color: "#cbd5e1" }}>
-                    Custom Input
-                  </label>
+          <div className="flex flex-col flex-1 min-h-0 bg-[#0a1120]">
+            {/* Mobile Tab Bar */}
+            <div className="flex shrink-0 bg-[#0d1526] border-b border-[#1e3058]">
+              <button
+                onClick={() => setTerminalTab('testcases')}
+                className={`flex-1 py-3 text-xs font-semibold ${terminalTab === 'testcases' ? 'text-[#22d3ee] border-b-2 border-[#22d3ee]' : 'text-slate-400'}`}
+              >
+                Editor / Input
+              </button>
+              <button
+                onClick={() => setTerminalTab('output')}
+                className={`flex-1 py-3 text-xs font-semibold ${terminalTab === 'output' ? 'text-[#22d3ee] border-b-2 border-[#22d3ee]' : 'text-slate-400'}`}
+              >
+                Output
+              </button>
+            </div>
+
+            {/* Mobile Content */}
+            <div className="flex-1 min-h-0 relative">
+              {/* Testcases Tab (Code Editor + Stdin) */}
+              <div
+                className={`absolute inset-0 flex-col overflow-y-auto transition-opacity ${
+                  terminalTab === 'testcases' ? 'flex z-10 opacity-100 pointer-events-auto' : 'flex z-0 opacity-0 pointer-events-none'
+                }`}
+              >
+                <div className="h-[50vh] shrink-0 border-b border-[#1e3058]">
+                  <CodeEditor
+                    value={code}
+                    onChange={setCode}
+                    language={language}
+                    height="100%"
+                    onRun={handleRun}
+                    onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
+                  />
+                </div>
+                <div className="flex-1 p-4 bg-[#0f172a]">
+                  <label className="text-xs font-semibold text-slate-400 mb-2 block">Stdin (Custom Input)</label>
                   <textarea
                     value={customInput}
                     onChange={(e) => setCustomInput(e.target.value)}
-                    placeholder="Enter input for your code..."
-                    className="w-full p-3 rounded-lg font-mono text-sm resize-none"
-                    style={{
-                      background: "#1e293b",
-                      border: "1px solid #334155",
-                      color: "#e2e8f0",
-                      height: "200px",
-                    }}
+                    placeholder="Enter stdin for your code…"
+                    className="w-full min-h-[120px] p-3 rounded-lg font-mono text-sm resize-y focus:outline-none focus:border-[#22d3ee]"
+                    style={{ background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0" }}
                   />
                 </div>
+              </div>
 
-                {customRunResult && (
-                  <div className="rounded-lg overflow-hidden" style={{ border: "1px solid #334155", background: "#0f172a" }}>
-                    <div className="px-3 py-2 font-mono text-xs font-semibold" style={{ color: "#94a3b8", borderBottom: "1px solid #334155" }}>
-                      Output
+              {/* Output Tab */}
+              <div
+                className={`absolute inset-0 flex-col overflow-y-auto bg-[#0f172a] p-4 transition-opacity ${
+                  terminalTab === 'output' ? 'flex z-10 opacity-100 pointer-events-auto' : 'flex z-0 opacity-0 pointer-events-none'
+                }`}
+              >
+                {!runResult ? (
+                  (runStatus || runLoading) ? (
+                    <div className="h-full flex flex-col items-center justify-center opacity-80">
+                      <svg className="animate-spin-forge w-8 h-8 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                     </div>
-                    <pre className="p-3 overflow-auto text-xs" style={{ color: "#cbd5e1", maxHeight: "200px", fontFamily: "var(--font-mono)" }}>
-                      {customRunResult.stdout || "(empty)"}
-                    </pre>
-                    {customRunResult.stderr && (
-                      <div className="px-3 py-2 font-mono text-xs" style={{ color: "#f43f5e", borderTop: "1px solid #334155" }}>
-                        <strong>Stderr:</strong> {customRunResult.stderr}
+                  ) : (
+                    <div className="text-xs text-slate-500 italic h-full flex items-center justify-center">
+                      Run your code to see output here.
+                    </div>
+                  )
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <div className="text-xs font-semibold mb-2" style={{ color: "#94a3b8" }}>Stdout</div>
+                      <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "#1e293b", color: "#cbd5e1" }}>
+                        {runResult.stdout || "(empty)"}
+                      </pre>
+                    </div>
+                    {runResult.stderr && (
+                      <div>
+                        <div className="text-xs font-semibold mb-2" style={{ color: "#f43f5e" }}>Stderr</div>
+                        <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "rgba(244,63,94,0.1)", color: "#f43f5e" }}>
+                          {runResult.stderr}
+                        </pre>
                       </div>
                     )}
-                    {customRunResult.executionTimeMs != null && (
-                      <div className="px-3 py-2 text-xs" style={{ color: "#64748b", borderTop: "1px solid #334155" }}>
-                        Execution: {customRunResult.executionTimeMs}ms
+                    {runResult.executionTimeMs != null && (
+                      <div className="text-xs" style={{ color: "#64748b" }}>
+                        Execution Time: <span style={{ color: "#cbd5e1" }}>{runResult.executionTimeMs}ms</span>
                       </div>
                     )}
-                    {customRunResult.error && (
-                      <div className="px-3 py-2 text-xs" style={{ color: "#f43f5e", borderTop: "1px solid #334155" }}>
-                        {customRunResult.error}
-                      </div>
+                    {runResult.error && (
+                      <div className="text-xs" style={{ color: "#f43f5e" }}>{runResult.error}</div>
                     )}
-                    {customRunResult.outputTruncated && (
-                      <div className="px-3 py-2 text-xs" style={{ color: "#f59e0b", borderTop: "1px solid #334155" }}>
-                        Output truncated due to size limits.
-                      </div>
+                    {runResult.outputTruncated && (
+                      <div className="text-xs" style={{ color: "#f59e0b" }}>Output truncated due to size limits.</div>
                     )}
                   </div>
                 )}
               </div>
             </div>
+          </div>
           )}
         </div>
 
@@ -762,27 +818,25 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
           </div>
         )}
 
-        {/* Footer: Action Buttons */}
+        {/* Footer: Status Pills + Action Buttons */}
         <div
           className="shrink-0 px-4 py-3 flex items-center justify-between gap-2"
           style={{ borderTop: "1px solid #1e3058", background: "rgba(0,0,0,0.3)" }}
         >
           <div className="flex items-center gap-2">
             {submissionStatus && <StatusPill label="Submission" status={submissionStatus} />}
-            {activeTab === 'editor' && runStatus && <StatusPill label="Run" status={runStatus} />}
-            {activeTab === 'custom-input' && customRunStatus && (
-              <StatusPill label="Run" status={customRunStatus} />
-            )}
+            {runStatus && <StatusPill label="Run" status={runStatus} />}
           </div>
           <div className="flex items-center gap-2">
-            {/* Run Code Button */}
+            {/* Run Code Button — always uses customInput textarea */}
             <button
-              onClick={activeTab === 'editor' ? handleRun : handleCustomInputRun}
-              disabled={(activeTab === 'editor' ? runLoading || runPolling : customRunLoading || customRunPolling) || !code.trim()}
+              onClick={handleRun}
+              disabled={runLoading || runPolling || !code.trim()}
               className="forge-btn-primary flex items-center gap-2 text-sm"
               style={{ padding: "0.45rem 1.25rem" }}
+              title="Run Code (Ctrl+Enter)"
             >
-              {(activeTab === 'editor' ? runLoading || runPolling : customRunLoading || customRunPolling) ? (
+              {runLoading || runPolling ? (
                 <>
                   <svg className="animate-spin-forge" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
@@ -799,13 +853,14 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
               )}
             </button>
 
-            {/* Submit Button (right) */}
+            {/* Submit Button */}
             <form onSubmit={handleSubmit} style={{ display: "inline" }}>
               <button
                 type="submit"
                 disabled={isBusy || !code.trim()}
                 className="forge-btn-primary flex items-center gap-2 text-sm"
                 style={{ padding: "0.45rem 1.25rem" }}
+                title="Submit (Ctrl+Shift+Enter)"
               >
                 {loading ? (
                   <>

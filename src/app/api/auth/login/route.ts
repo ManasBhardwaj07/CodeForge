@@ -41,7 +41,7 @@ export async function POST(request: Request) {
       maxAge: 60 * 60, // 1 hour
     });
 
-    return Response.json({ user: result.user }, { status: 200 });
+    return Response.json({ user: result.user, token: result.token }, { status: 200 });
   } catch (error) {
     if (error instanceof AuthServiceError) {
       return errorResponse(error.message, error.code, error.statusCode);

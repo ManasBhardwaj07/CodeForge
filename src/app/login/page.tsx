@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function LoginInner() {
-  const [mode, setMode] = useState<"username" | "email">("username");
+
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -20,10 +20,11 @@ function LoginInner() {
     setError(null);
 
     if (!identifier.trim()) {
-      setError(mode === "email" ? "Email is required." : "Username is required.");
+      setError("Email or Username is required.");
       return;
     }
-    if (mode === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) {
+    const isEmail = identifier.includes("@");
+    if (isEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) {
       setError("Please enter a valid email address.");
       return;
     }
@@ -34,9 +35,9 @@ function LoginInner() {
 
     setLoading(true);
     try {
-      const body = mode === "email"
-        ? { email: identifier, password }
-        : { username: identifier, password };
+      const body = isEmail
+        ? { email: identifier.trim(), password }
+        : { username: identifier.trim(), password };
 
       const res = await fetch("/api/auth/login", {
         method: "POST",
@@ -73,40 +74,18 @@ function LoginInner() {
           </p>
         </div>
 
-        {/* Mode toggle */}
-        <div
-          className="flex mb-6 rounded-lg p-1 gap-1"
-          style={{ background: "rgba(0,0,0,0.3)", border: "1px solid #1e3058" }}
-        >
-          {(["username", "email"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => { setMode(m); setIdentifier(""); setError(null); }}
-              className="flex-1 py-1.5 rounded-md text-sm font-medium transition-all duration-200"
-              style={{
-                background: mode === m ? "rgba(34,211,238,0.15)" : "transparent",
-                color: mode === m ? "#22d3ee" : "#64748b",
-                border: mode === m ? "1px solid rgba(34,211,238,0.3)" : "1px solid transparent",
-              }}
-            >
-              {m.charAt(0).toUpperCase() + m.slice(1)}
-            </button>
-          ))}
-        </div>
-
         <form className="space-y-5" onSubmit={handleLogin} noValidate>
           <div>
             <label className="block text-sm font-medium mb-1.5" style={{ color: "#94a3b8" }}>
-              {mode === "email" ? "Email" : "Username"}
+              Email or Username
             </label>
             <input
-              type={mode === "email" ? "email" : "text"}
-              className="forge-input"
-              placeholder={mode === "email" ? "you@example.com" : "your_username"}
+              type="text"
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
-              autoComplete={mode === "email" ? "email" : "username"}
+              placeholder="you@example.com or your_username"
+              className="forge-input"
+              autoComplete="username"
             />
           </div>
 

@@ -11,7 +11,7 @@ export const MAX_EXECUTION_CODE_LENGTH = 20_000;
 export const MAX_EXECUTION_INPUT_LENGTH = 100_000;
 
 export const DEFAULT_PER_TEST_TIMEOUT_MS = 8_000;
-export const DEFAULT_GLOBAL_TIMEOUT_MS = 30_000;
+export const DEFAULT_GLOBAL_TIMEOUT_MS = 120_000;
 
 export type ExecutionResourceLimits = {
   memoryMb: number;
@@ -761,32 +761,40 @@ async function executeWithoutHostMount(
 
     // Stage 1: Compile
     if (isTwoStage) {
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) return generateTimeoutOutcome(0, containerId, containerId, false);
-
+      // Compilation gets its own generous timeout, independent of execution time limits
+      const COMPILE_TIMEOUT_MS = 15000;
       const processResult = await runProcess(
         "docker",
         ["exec", "-i", containerName, "sh", "-lc", config.compileCmd!],
         "",
-        { timeoutMs: remainingMs, containerNameToKill: containerName }
+        { timeoutMs: COMPILE_TIMEOUT_MS, containerNameToKill: containerName }
       );
 
       totalExecutionTimeMs += processResult.executionTimeMs;
       outputTruncated = outputTruncated || processResult.stdoutTruncated || processResult.stderrTruncated;
 
       const outcome = mapProcessToOutcome(processResult, containerId, containerId, outputTruncated, true, totalExecutionTimeMs);
-      if (!outcome.success) return outcome;
+      if (!outcome.success) {
+        // If compilation timed out, adjust the error type to COMPILE_ERROR instead of TIMEOUT to be accurate
+        if (outcome.errorType === "TIMEOUT") outcome.errorType = "COMPILE_ERROR";
+        return outcome;
+      }
     }
 
     // Stage 2: Run
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) return generateTimeoutOutcome(totalExecutionTimeMs, containerId, containerId, outputTruncated);
+    // The user's code gets the FULL allowed execution time limit
+    // We write input to a file instead of piping via stdin to avoid Docker Windows EOF hanging bugs
+    await dockerExecWriteTextFile({
+      containerName,
+      targetPath: `/workspace/input.txt`,
+      content: request.input,
+    });
 
     const processResult = await runProcess(
       "docker",
-      ["exec", "-i", containerName, "sh", "-lc", config.runCmd(failsafeSec)],
-      request.input,
-      { timeoutMs: remainingMs, containerNameToKill: containerName }
+      ["exec", "-i", containerName, "sh", "-lc", `${config.runCmd(failsafeSec)} < /workspace/input.txt`],
+      "", // Empty stdin pipe from node
+      { timeoutMs: maxRuntimeMs, containerNameToKill: containerName }
     );
 
     totalExecutionTimeMs += processResult.executionTimeMs;

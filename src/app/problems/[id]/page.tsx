@@ -46,6 +46,8 @@ function DiffBadge({ difficulty }: { difficulty: string }) {
   );
 }
 
+import { ResizableHorizontalSplit } from "@/components/ResizableHorizontalSplit";
+
 export default async function ProblemDetailPage({
   params,
 }: {
@@ -73,108 +75,108 @@ export default async function ProblemDetailPage({
     );
   }
 
-  return (
+  const leftPane = (
     <div
-      className="flex animate-fade-in"
-      style={{ height: "calc(100vh - 3.5rem)" }}
+      className="flex flex-col overflow-hidden h-full w-full"
+      style={{ background: "#0d1526" }}
     >
-      {/* ── LEFT PANE: Problem description ── */}
+      {/* Problem header */}
       <div
-        className="flex flex-col overflow-hidden"
-        style={{
-          width: "50%",
-          borderRight: "1px solid #1e3058",
-          background: "#0d1526",
-        }}
+        className="px-6 py-4 shrink-0"
+        style={{ borderBottom: "1px solid #1e3058", background: "rgba(0,0,0,0.3)" }}
       >
-        {/* Problem header */}
-        <div
-          className="px-6 py-4 shrink-0"
-          style={{ borderBottom: "1px solid #1e3058", background: "rgba(0,0,0,0.3)" }}
+        <Link
+          href="/problems"
+          className="inline-flex items-center gap-1.5 text-xs mb-3 hover:opacity-80 transition-opacity"
+          style={{ color: "#64748b" }}
         >
-          <Link
-            href="/problems"
-            className="inline-flex items-center gap-1.5 text-xs mb-3 hover:opacity-80 transition-opacity"
-            style={{ color: "#64748b" }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="15 18 9 12 15 6"/>
-            </svg>
-            All Problems
-          </Link>
-          <h1 className="text-xl font-extrabold mb-2 leading-tight" style={{ color: "#e2e8f0" }}>
-            {problem.title}
-          </h1>
-          <DiffBadge difficulty={problem.difficulty} />
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          All Problems
+        </Link>
+        <h1 className="text-xl font-extrabold mb-2 leading-tight" style={{ color: "#e2e8f0" }}>
+          {problem.title}
+        </h1>
+        <DiffBadge difficulty={problem.difficulty} />
+      </div>
+
+      {/* Description */}
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div
+          className="text-sm leading-relaxed whitespace-pre-line"
+          style={{ color: "#94a3b8" }}
+        >
+          {problem.description}
         </div>
 
-        {/* Description */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div
-            className="text-sm leading-relaxed whitespace-pre-line"
-            style={{ color: "#94a3b8" }}
-          >
-            {problem.description}
-          </div>
-
-          {/* Examples */}
-          {problem.testCases?.some((t) => t.isSample) && (
-            <div className="mt-8 space-y-3">
-              <p className="text-sm font-semibold" style={{ color: "#e2e8f0" }}>Examples</p>
-              {problem.testCases
-                ?.filter((t) => t.isSample)
-                .map((sample, idx) => (
-                  <div key={sample.id} className="forge-card p-4">
-                    <div className="text-xs font-semibold mb-2" style={{ color: "#94a3b8" }}>
-                      Example {idx + 1}
+        {/* Examples */}
+        {problem.testCases?.some((t) => t.isSample) && (
+          <div className="mt-8 space-y-3">
+            <p className="text-sm font-semibold" style={{ color: "#e2e8f0" }}>Examples</p>
+            {problem.testCases
+              ?.filter((t) => t.isSample)
+              .map((sample, idx) => (
+                <div key={sample.id} className="forge-card p-4">
+                  <div className="text-xs font-semibold mb-2" style={{ color: "#94a3b8" }}>
+                    Example {idx + 1}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <div className="text-xs font-semibold mb-1" style={{ color: "#64748b" }}>Input</div>
+                      <pre
+                        className="rounded p-2 text-xs leading-relaxed overflow-x-auto"
+                        style={{ background: "#0a0f1e", color: "#e2e8f0", fontFamily: "var(--font-mono)" }}
+                      >
+                        {sample.input || "—"}
+                      </pre>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <div className="text-xs font-semibold mb-1" style={{ color: "#64748b" }}>Input</div>
-                        <pre
-                          className="rounded p-2 text-xs leading-relaxed overflow-x-auto"
-                          style={{ background: "#0a0f1e", color: "#e2e8f0", fontFamily: "var(--font-mono)" }}
-                        >
-                          {sample.input || "—"}
-                        </pre>
-                      </div>
-                      <div>
-                        <div className="text-xs font-semibold mb-1" style={{ color: "#64748b" }}>Output</div>
-                        <pre
-                          className="rounded p-2 text-xs leading-relaxed overflow-x-auto"
-                          style={{ background: "#0a0f1e", color: "#e2e8f0", fontFamily: "var(--font-mono)" }}
-                        >
-                          {sample.expectedOutput || "—"}
-                        </pre>
-                      </div>
+                    <div>
+                      <div className="text-xs font-semibold mb-1" style={{ color: "#64748b" }}>Output</div>
+                      <pre
+                        className="rounded p-2 text-xs leading-relaxed overflow-x-auto"
+                        style={{ background: "#0a0f1e", color: "#e2e8f0", fontFamily: "var(--font-mono)" }}
+                      >
+                        {sample.expectedOutput || "—"}
+                      </pre>
                     </div>
                   </div>
-                ))}
-            </div>
-          )}
-
-          {/* Tip box */}
-          <div
-            className="mt-8 rounded-xl p-4 text-xs"
-            style={{
-              background: "rgba(34,211,238,0.05)",
-              border: "1px solid rgba(34,211,238,0.15)",
-              color: "#64748b",
-            }}
-          >
-            <p className="font-semibold mb-1" style={{ color: "#22d3ee" }}>💡 Tip</p>
-            <p>Read the input from <strong style={{ color: "#94a3b8" }}>stdin</strong> and print your answer to <strong style={{ color: "#94a3b8" }}>stdout</strong>. Make sure your output exactly matches the expected format.</p>
+                </div>
+              ))}
           </div>
+        )}
+
+        {/* Tip box */}
+        <div
+          className="mt-8 rounded-xl p-4 text-xs"
+          style={{
+            background: "rgba(34,211,238,0.05)",
+            border: "1px solid rgba(34,211,238,0.15)",
+            color: "#64748b",
+          }}
+        >
+          <p className="font-semibold mb-1" style={{ color: "#22d3ee" }}>💡 Tip</p>
+          <p>Read the input from <strong style={{ color: "#94a3b8" }}>stdin</strong> and print your answer to <strong style={{ color: "#94a3b8" }}>stdout</strong>. Make sure your output exactly matches the expected format.</p>
         </div>
       </div>
+    </div>
+  );
 
-      {/* ── RIGHT PANE: Code Editor ── */}
-      <div
-        className="flex flex-col overflow-hidden"
-        style={{ width: "50%", background: "#080d1a" }}
-      >
-        <ProblemSolver problemId={problem.id} sampleInput={sampleInput} />
-      </div>
+  const rightPane = (
+    <div
+      className="flex flex-col h-full w-full overflow-hidden"
+      style={{ background: "#080d1a" }}
+    >
+      <ProblemSolver problemId={problem.id} sampleInput={sampleInput} />
+    </div>
+  );
+
+  return (
+    <div
+      className="flex w-full animate-fade-in"
+      style={{ height: "calc(100vh - 3.5rem)" }}
+    >
+      <ResizableHorizontalSplit left={leftPane} right={rightPane} />
     </div>
   );
 }
