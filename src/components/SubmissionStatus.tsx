@@ -17,10 +17,10 @@ export function SubmissionStatus({ status, verdict }: {
 
   return (
     <div className="flex items-center gap-3 my-2">
-      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#64748b" }}>
+      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-forge-muted)" }}>
         Status:
       </span>
-      <span className="text-xs font-bold" style={{ color: "#94a3b8" }}>{status}</span>
+      <span className="text-xs font-bold" style={{ color: "var(--color-forge-muted)" }}>{status}</span>
       {style && (
         <span
           className="px-2.5 py-0.5 rounded-full text-xs font-bold"

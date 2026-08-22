@@ -25,6 +25,7 @@ export type SubmissionJobData = {
 export type RunJobData = {
   type: 'run';
   jobId: string;
+  userId: string;
   requestId?: string;
   language: string;
   code: string;

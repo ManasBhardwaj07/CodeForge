@@ -1,5 +1,6 @@
 import { AuthorizationError, requireAuth } from "@/lib/auth";
 import { errorResponse } from "@/lib/http";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { resolveRequestId } from "@/lib/request-id";
 import { createQueuedSubmission, SubmissionServiceError } from "@/services/submission.service";
 
@@ -45,6 +46,15 @@ export async function POST(request: Request) {
       `Code must be between 1 and ${CODE_MAX_LENGTH} characters`,
       "CODE_TOO_LARGE",
       413
+    );
+  }
+
+  const isAllowed = await checkRateLimit(user.userId, "submit");
+  if (!isAllowed) {
+    return errorResponse(
+      "Rate limit exceeded. Please wait before submitting again.",
+      "RATE_LIMIT_EXCEEDED",
+      429
     );
   }
 

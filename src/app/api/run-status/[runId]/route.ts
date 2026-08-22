@@ -7,8 +7,9 @@ export async function GET(
   { params }: { params: Promise<{ runId: string }> }
 ) {
   try {
+    let user;
     try {
-      await requireAuth(req);
+      user = await requireAuth(req);
     } catch (error) {
       if (error instanceof AuthorizationError) {
         return NextResponse.json({ error: error.message }, { status: error.statusCode });
@@ -24,6 +25,10 @@ export async function GET(
 
     if (!job) {
       return NextResponse.json({ error: 'Job not found or expired' }, { status: 404 });
+    }
+
+    if (job.data?.type !== 'run' || job.data.userId !== user.userId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Check job state

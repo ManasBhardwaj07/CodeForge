@@ -15,6 +15,8 @@ type Problem = {
     isSample: boolean;
     orderIndex: number;
   }[];
+  serialNumber?: number;
+  nextProblemId?: string | null;
 };
 
 async function getProblem(id: string): Promise<Problem | null> {
@@ -78,25 +80,25 @@ export default async function ProblemDetailPage({
   const leftPane = (
     <div
       className="flex flex-col overflow-hidden h-full w-full"
-      style={{ background: "#0d1526" }}
+      style={{ background: "var(--color-forge-surface)" }}
     >
       {/* Problem header */}
       <div
         className="px-6 py-4 shrink-0"
-        style={{ borderBottom: "1px solid #1e3058", background: "rgba(0,0,0,0.3)" }}
+        style={{ borderBottom: "1px solid var(--color-forge-border)", background: "rgba(0,0,0,0.3)" }}
       >
         <Link
           href="/problems"
           className="inline-flex items-center gap-1.5 text-xs mb-3 hover:opacity-80 transition-opacity"
-          style={{ color: "#64748b" }}
+          style={{ color: "var(--color-forge-muted)" }}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
           All Problems
         </Link>
-        <h1 className="text-xl font-extrabold mb-2 leading-tight" style={{ color: "#e2e8f0" }}>
-          {problem.title}
+        <h1 className="text-xl font-extrabold mb-2 leading-tight" style={{ color: "var(--color-forge-text)" }}>
+          {problem.serialNumber ? `${problem.serialNumber}. ` : ""}{problem.title}
         </h1>
         <DiffBadge difficulty={problem.difficulty} />
       </div>
@@ -105,7 +107,7 @@ export default async function ProblemDetailPage({
       <div className="flex-1 overflow-y-auto px-6 py-5">
         <div
           className="text-sm leading-relaxed whitespace-pre-line"
-          style={{ color: "#94a3b8" }}
+          style={{ color: "var(--color-forge-muted)" }}
         >
           {problem.description}
         </div>
@@ -113,29 +115,29 @@ export default async function ProblemDetailPage({
         {/* Examples */}
         {problem.testCases?.some((t) => t.isSample) && (
           <div className="mt-8 space-y-3">
-            <p className="text-sm font-semibold" style={{ color: "#e2e8f0" }}>Examples</p>
+            <p className="text-sm font-semibold" style={{ color: "var(--color-forge-text)" }}>Examples</p>
             {problem.testCases
               ?.filter((t) => t.isSample)
               .map((sample, idx) => (
                 <div key={sample.id} className="forge-card p-4">
-                  <div className="text-xs font-semibold mb-2" style={{ color: "#94a3b8" }}>
+                  <div className="text-xs font-semibold mb-2" style={{ color: "var(--color-forge-muted)" }}>
                     Example {idx + 1}
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
-                      <div className="text-xs font-semibold mb-1" style={{ color: "#64748b" }}>Input</div>
+                      <div className="text-xs font-semibold mb-1" style={{ color: "var(--color-forge-muted)" }}>Input</div>
                       <pre
                         className="rounded p-2 text-xs leading-relaxed overflow-x-auto"
-                        style={{ background: "#0a0f1e", color: "#e2e8f0", fontFamily: "var(--font-mono)" }}
+                        style={{ background: "var(--color-forge-bg)", color: "var(--color-forge-text)", fontFamily: "var(--font-mono)" }}
                       >
                         {sample.input || "—"}
                       </pre>
                     </div>
                     <div>
-                      <div className="text-xs font-semibold mb-1" style={{ color: "#64748b" }}>Output</div>
+                      <div className="text-xs font-semibold mb-1" style={{ color: "var(--color-forge-muted)" }}>Output</div>
                       <pre
                         className="rounded p-2 text-xs leading-relaxed overflow-x-auto"
-                        style={{ background: "#0a0f1e", color: "#e2e8f0", fontFamily: "var(--font-mono)" }}
+                        style={{ background: "var(--color-forge-bg)", color: "var(--color-forge-text)", fontFamily: "var(--font-mono)" }}
                       >
                         {sample.expectedOutput || "—"}
                       </pre>
@@ -152,11 +154,11 @@ export default async function ProblemDetailPage({
           style={{
             background: "rgba(34,211,238,0.05)",
             border: "1px solid rgba(34,211,238,0.15)",
-            color: "#64748b",
+            color: "var(--color-forge-muted)",
           }}
         >
           <p className="font-semibold mb-1" style={{ color: "#22d3ee" }}>💡 Tip</p>
-          <p>Read the input from <strong style={{ color: "#94a3b8" }}>stdin</strong> and print your answer to <strong style={{ color: "#94a3b8" }}>stdout</strong>. Make sure your output exactly matches the expected format.</p>
+          <p>Read the input from <strong style={{ color: "var(--color-forge-muted)" }}>stdin</strong> and print your answer to <strong style={{ color: "var(--color-forge-muted)" }}>stdout</strong>. Make sure your output exactly matches the expected format.</p>
         </div>
       </div>
     </div>
@@ -165,9 +167,14 @@ export default async function ProblemDetailPage({
   const rightPane = (
     <div
       className="flex flex-col h-full w-full overflow-hidden"
-      style={{ background: "#080d1a" }}
+      style={{ background: "var(--color-forge-bg)" }}
     >
-      <ProblemSolver problemId={problem.id} sampleInput={sampleInput} />
+      <ProblemSolver
+        problemId={problem.id}
+        language="JAVASCRIPT"
+        sampleInput={sampleInput}
+        nextProblemId={problem.nextProblemId}
+      />
     </div>
   );
 

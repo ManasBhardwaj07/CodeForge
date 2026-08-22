@@ -762,7 +762,7 @@ async function executeWithoutHostMount(
     // Stage 1: Compile
     if (isTwoStage) {
       // Compilation gets its own generous timeout, independent of execution time limits
-      const COMPILE_TIMEOUT_MS = 15000;
+      const COMPILE_TIMEOUT_MS = 25000; // Increased to 25s for heavy headers like <bits/stdc++.h>
       const processResult = await runProcess(
         "docker",
         ["exec", "-i", containerName, "sh", "-lc", config.compileCmd!],
@@ -776,7 +776,10 @@ async function executeWithoutHostMount(
       const outcome = mapProcessToOutcome(processResult, containerId, containerId, outputTruncated, true, totalExecutionTimeMs);
       if (!outcome.success) {
         // If compilation timed out, adjust the error type to COMPILE_ERROR instead of TIMEOUT to be accurate
-        if (outcome.errorType === "TIMEOUT") outcome.errorType = "COMPILE_ERROR";
+        if (outcome.errorType === "TIMEOUT") {
+          outcome.errorType = "COMPILE_ERROR";
+          outcome.stderr = "Compilation Time Limit Exceeded.\n\nThe compiler took too long to build your code. Tip: If using C++, avoid '#include <bits/stdc++.h>' as it is extremely heavy; include only the specific headers you need.";
+        }
         return outcome;
       }
     }

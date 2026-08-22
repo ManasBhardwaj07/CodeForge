@@ -2,7 +2,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-
 const STATIC_STATS = [
   { label: "Languages", value: "5" },
   { label: "Async Queue", value: "Queue-backed" },
@@ -43,13 +42,20 @@ export default function Home() {
   const [problemCount, setProblemCount] = useState<number | null>(null);
 
   useEffect(() => {
-    // Check auth on client only (after hydration)
     const checkAuth = async () => {
-      const res = await fetch("/api/my-submissions");
-      setAuthed(res.ok);
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        if (res.ok) {
+           const data = await res.json();
+           setAuthed(data.authenticated);
+        } else {
+           setAuthed(false);
+        }
+      } catch {
+        setAuthed(false);
+      }
     };
     
-    // Use setTimeout to defer setState to after render
     const timer = setTimeout(checkAuth, 0);
     return () => clearTimeout(timer);
   }, []);
@@ -84,7 +90,7 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="w-full max-w-5xl mx-auto px-6 py-16 animate-fade-in">
+    <main className="w-full max-w-7xl mx-auto px-6 py-16 animate-fade-in">
       {/* Hero */}
       <div className="text-center mb-16">
         <div
@@ -92,7 +98,7 @@ export default function Home() {
           style={{
             background: "rgba(34,211,238,0.1)",
             border: "1px solid rgba(34,211,238,0.3)",
-            color: "#22d3ee",
+            color: "var(--color-forge-cyan)",
           }}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
@@ -101,12 +107,12 @@ export default function Home() {
 
         <h1
           className="text-5xl sm:text-6xl font-extrabold tracking-tight mb-5 animate-slide-down"
-          style={{ color: "#e2e8f0", letterSpacing: "-0.03em", animationDelay: "0.05s" }}
+          style={{ color: "var(--color-forge-text)", letterSpacing: "-0.03em", animationDelay: "0.05s" }}
         >
           Forge your{" "}
           <span
             style={{
-              background: "linear-gradient(135deg, #22d3ee, #06b6d4)",
+              background: "linear-gradient(135deg, var(--color-forge-cyan-dim, #0891b2), var(--color-forge-cyan))",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
             }}
@@ -117,7 +123,7 @@ export default function Home() {
 
         <p
           className="text-lg max-w-2xl mx-auto mb-10 animate-fade-in"
-          style={{ color: "#64748b", animationDelay: "0.1s" }}
+          style={{ color: "var(--color-forge-muted)", animationDelay: "0.1s" }}
         >
           Solve algorithmic problems, submit your code, and watch it evaluated in real-time
           against comprehensive test suites.
@@ -127,6 +133,11 @@ export default function Home() {
           <Link href="/problems" className="forge-btn-primary text-base" style={{ padding: "0.65rem 1.75rem" }}>
             Browse Problems →
           </Link>
+          {!authed && (
+            <Link href="/register" className="forge-btn-ghost text-base" style={{ padding: "0.65rem 1.75rem" }}>
+              Create Account
+            </Link>
+          )}
         </div>
       </div>
 
@@ -134,8 +145,8 @@ export default function Home() {
       <div className="grid grid-cols-3 gap-4 mb-16 stagger-children">
         {[{ label: "Problems", value: problemCount == null ? "—" : String(problemCount) }, ...STATIC_STATS].map(({ label, value }) => (
           <div key={label} className="forge-card text-center py-5 px-4">
-            <div className="text-2xl font-extrabold mb-1" style={{ color: "#22d3ee" }}>{value}</div>
-            <div className="text-xs font-medium uppercase tracking-widest" style={{ color: "#64748b" }}>{label}</div>
+            <div className="text-2xl font-extrabold mb-1" style={{ color: "var(--color-forge-cyan)" }}>{value}</div>
+            <div className="text-xs font-medium uppercase tracking-widest" style={{ color: "var(--color-forge-muted)" }}>{label}</div>
           </div>
         ))}
       </div>
@@ -149,12 +160,12 @@ export default function Home() {
           <div key={title} className="forge-card-hover p-6">
             <div
               className="w-10 h-10 rounded-lg flex items-center justify-center mb-4"
-              style={{ background: "rgba(34,211,238,0.1)", color: "#22d3ee" }}
+              style={{ background: "rgba(34,211,238,0.1)", color: "var(--color-forge-cyan)" }}
             >
               {icon}
             </div>
-            <h3 className="font-bold text-base mb-2" style={{ color: "#e2e8f0" }}>{title}</h3>
-            <p className="text-sm leading-relaxed" style={{ color: "#64748b" }}>{desc}</p>
+            <h3 className="font-bold text-base mb-2" style={{ color: "var(--color-forge-text)" }}>{title}</h3>
+            <p className="text-sm leading-relaxed" style={{ color: "var(--color-forge-muted)" }}>{desc}</p>
           </div>
         ))}
       </div>

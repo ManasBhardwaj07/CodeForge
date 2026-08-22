@@ -72,7 +72,7 @@ export default function SubmissionsPage() {
   });
 
   return (
-    <main className="max-w-4xl mx-auto px-6 py-10 animate-fade-in">
+    <main className="max-w-7xl mx-auto px-6 py-10 animate-fade-in">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight" style={{ color: "#e2e8f0" }}>
@@ -97,9 +97,19 @@ export default function SubmissionsPage() {
       ) : error ? (
         <div className="py-10 text-center" style={{ color: "#f43f5e" }}>{error}</div>
       ) : items.length === 0 ? (
-        <div className="forge-card py-16 text-center">
-          <p className="text-base font-semibold mb-2" style={{ color: "#e2e8f0" }}>No submissions yet</p>
-          <p className="text-sm mb-5" style={{ color: "#64748b" }}>Pick a problem and submit your first solution!</p>
+        <div className="forge-card py-24 px-6 text-center flex flex-col items-center justify-center">
+          <div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
+            style={{ background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.15)" }}
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+          </div>
+          <p className="text-base font-semibold mb-1" style={{ color: "#e2e8f0" }}>No submissions yet</p>
+          <p className="text-sm max-w-sm mb-6" style={{ color: "#64748b" }}>
+            You haven&apos;t submitted any solutions. Pick a problem and submit your first solution!
+          </p>
           <Link href="/problems" className="forge-btn-primary text-sm" style={{ padding: "0.5rem 1.25rem" }}>
             Browse Problems
           </Link>

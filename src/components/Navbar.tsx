@@ -20,8 +20,8 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
   return (
     <nav
       style={{
-        background: "linear-gradient(to right, #060b18, #0a1628, #060b18)",
-        borderBottom: "1px solid #1e3058",
+        background: "var(--color-forge-surface)",
+        borderBottom: "1px solid var(--color-forge-border)",
       }}
       className="sticky top-0 z-50 w-full"
     >
@@ -36,7 +36,7 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
           </span>
           <span
             className="text-lg font-bold tracking-tight"
-            style={{ color: "#e2e8f0" }}
+            style={{ color: "var(--color-forge-text)" }}
           >
             Code
             <span style={{ color: "#22d3ee" }}>Forge</span>
@@ -54,7 +54,7 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
                 href={href}
                 className="relative px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150"
                 style={{
-                  color: active ? "#22d3ee" : "#94a3b8",
+                  color: active ? "#22d3ee" : "var(--color-forge-muted)",
                 }}
               >
                 {label}
@@ -75,40 +75,45 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
         <div className="flex items-center gap-3">
           {isAuthenticated ? (
             <>
-              <span
-                className="hidden sm:flex items-center gap-1.5 text-sm font-semibold px-3 py-1 rounded-full animate-slide-right"
-                style={{
-                  background: "rgba(34,211,238,0.1)",
-                  border: "1px solid rgba(34,211,238,0.25)",
-                  color: "#22d3ee",
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
-                </svg>
-                {username}
-              </span>
-              <button
-                className="forge-btn-ghost text-sm"
-                style={{ borderColor: "rgba(244,63,94,0.4)", color: "#f43f5e", padding: "0.35rem 1rem" }}
-                onClick={async () => {
-                  try {
-                    await fetch("/api/auth/logout", { method: "POST" });
-                  } catch (e) {
-                    console.error("Logout failed", e);
-                  }
-                  window.location.href = "/login";
-                }}
-              >
-                Logout
-              </button>
+              <div className="hidden sm:flex items-center gap-3">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: "var(--color-forge-surface)", border: "1px solid var(--color-forge-border)" }}>
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: "rgba(34,211,238,0.1)", color: "var(--color-forge-cyan)" }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
+                    </svg>
+                  </div>
+                  <span className="text-sm font-semibold tracking-wide" style={{ color: "var(--color-forge-text)" }}>
+                    {username}
+                  </span>
+                </div>
+
+                <button
+                  className="forge-btn-ghost text-sm flex items-center justify-center p-1.5 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400 group transition-all"
+                  style={{ color: "var(--color-forge-muted)", padding: "0.4rem 0.5rem" }}
+                  title="Logout"
+                  onClick={async () => {
+                    try {
+                      await fetch("/api/auth/logout", { method: "POST" });
+                    } catch (e) {
+                      console.error("Logout failed", e);
+                    }
+                    window.location.href = "/login";
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-hover:translate-x-0.5">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                    <polyline points="16 17 21 12 16 7"></polyline>
+                    <line x1="21" y1="12" x2="9" y2="12"></line>
+                  </svg>
+                </button>
+              </div>
             </>
           ) : (
             <>
               <Link
                 href={`/login?next=${nextParam}`}
                 className="text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
-                style={{ color: "#94a3b8" }}
+                style={{ color: "var(--color-forge-muted)" }}
               >
                 Login
               </Link>
@@ -125,7 +130,7 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
           {/* Mobile menu toggle */}
           <button
             className="sm:hidden p-2 rounded-lg"
-            style={{ color: "#94a3b8" }}
+            style={{ color: "var(--color-forge-muted)" }}
             onClick={() => setMenuOpen((o) => !o)}
             aria-label="Toggle menu"
           >
@@ -143,14 +148,14 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
       {!isAuthPage && menuOpen && (
         <div
           className="sm:hidden animate-slide-down px-4 pb-4 flex flex-col gap-2"
-          style={{ borderTop: "1px solid #1e3058", background: "#060b18" }}
+          style={{ borderTop: "1px solid var(--color-forge-border)", background: "var(--color-forge-bg)" }}
         >
           {navLinks.map(({ href, label }) => (
             <Link
               key={href}
               href={href}
               className="py-2.5 text-sm font-medium"
-              style={{ color: "#94a3b8" }}
+              style={{ color: "var(--color-forge-muted)" }}
               onClick={() => setMenuOpen(false)}
             >
               {label}

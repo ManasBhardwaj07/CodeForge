@@ -21,14 +21,18 @@ export async function GET(
     }
 
     const problems = await listProblems();
-    const all: Problem[] = Array.isArray(problems) ? (problems as Problem[]) : [];
-    const problem = all.find((p) => p.id === id) ?? null;
+    const all = Array.isArray(problems) ? problems : [];
+    const index = all.findIndex((p) => p.id === id);
 
-    if (!problem) {
+    if (index === -1) {
       return errorResponse("Problem not found", "PROBLEM_NOT_FOUND", 404);
     }
 
-    return Response.json(problem, { status: 200 });
+    const problem = all[index];
+    const serialNumber = index + 1;
+    const nextProblemId = index + 1 < all.length ? all[index + 1]?.id ?? null : null;
+
+    return Response.json({ ...problem, serialNumber, nextProblemId }, { status: 200 });
   } catch {
     return errorResponse("Internal server error", "INTERNAL_SERVER_ERROR", 500);
   }

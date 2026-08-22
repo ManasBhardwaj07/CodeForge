@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { CodeEditor } from "@/components/CodeEditor";
 import { Group, Panel, Separator, GroupImperativeHandle, Layout } from "react-resizable-panels";
 
 const LANGUAGES = [
   { value: "C", label: "C", starter: '#include <stdio.h>\n\nint main() {\n    // Write your solution here\n    char buffer[1024];\n    while (fgets(buffer, sizeof(buffer), stdin)) {\n        fputs(buffer, stdout);\n    }\n    return 0;\n}\n' },
-  { value: "CPP", label: "C++", starter: '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n    \n    return 0;\n}\n' },
+  { value: "CPP", label: "C++", starter: '#include <iostream>\n#include <vector>\n#include <string>\n#include <algorithm>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n    \n    return 0;\n}\n' },
   { value: "JAVA", label: "Java", starter: 'import java.io.*;\nimport java.util.*;\n\npublic class Main {\n  public static void main(String[] args) throws Exception {\n    BufferedReader br = new BufferedReader(new InputStreamReader(System.in));\n    String line;\n    while ((line = br.readLine()) != null) {\n      if (line.isEmpty()) continue;\n      System.out.println(line);\n    }\n  }\n}\n' },
   { value: "JAVASCRIPT", label: "JavaScript", starter: '// Write your solution here\n\nconst readline = require("readline");\nconst rl = readline.createInterface({ input: process.stdin });\nrl.on("line", (line) => {\n  // process input\n  console.log(line);\n  rl.close();\n});\n' },
   { value: "PYTHON", label: "Python", starter: '# Write your solution here\n\nimport sys\n\nfor line in sys.stdin:\n    line = line.strip()\n    if not line:\n        continue\n    print(line)\n' },
@@ -40,6 +41,7 @@ type RunResult = {
   exitCode?: number;
   outputTruncated?: boolean;
   error?: string;
+  errorType?: "COMPILE_ERROR" | "RUNTIME_ERROR" | "TIMEOUT" | "INFRA_ERROR" | "NONE" | null;
 };
 
 type Submission = {
@@ -52,7 +54,7 @@ type Submission = {
 };
 
 function StatusPill({ label, status }: { label: string; status: string }) {
-  const style = STATUS_COLORS[status] ?? { bg: "rgba(100,116,139,0.12)", text: "#94a3b8", border: "rgba(100,116,139,0.35)" };
+  const style = STATUS_COLORS[status] ?? { bg: "rgba(100,116,139,0.12)", text: "var(--color-forge-muted)", border: "rgba(100,116,139,0.35)" };
   return (
     <span
       className="px-2.5 py-1 rounded-full text-xs font-semibold"
@@ -63,6 +65,8 @@ function StatusPill({ label, status }: { label: string; status: string }) {
   );
 }
 
+
+
 function VerdictBadge({ verdict }: { verdict: string }) {
   const upper = verdict.toUpperCase();
   const map: Record<string, { bg: string; color: string; label: string }> = {
@@ -72,7 +76,7 @@ function VerdictBadge({ verdict }: { verdict: string }) {
     RUNTIME_ERROR: { bg: "rgba(251,146,60,0.12)", color: "#fb923c", label: "⚠ Runtime Error" },
     COMPILE_ERROR: { bg: "rgba(167,139,250,0.12)",color: "#a78bfa", label: "⚙ Compile Error" },
   };
-  const style = map[upper] ?? { bg: "rgba(100,116,139,0.12)", color: "#64748b", label: verdict };
+  const style = map[upper] ?? { bg: "rgba(100,116,139,0.12)", color: "var(--color-forge-muted)", label: verdict };
   return (
     <span
       className="px-3 py-1 rounded-full text-sm font-bold"
@@ -105,7 +109,7 @@ function TestCaseRow({ result, index }: { result: ExecResult; index: number }) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium"
-        style={{ color: "#e2e8f0" }}
+        style={{ color: "var(--color-forge-text)" }}
       >
         <div className="flex items-center gap-3">
           <span
@@ -119,12 +123,12 @@ function TestCaseRow({ result, index }: { result: ExecResult; index: number }) {
           </span>
           Test Case {index + 1}
           {result.executionTimeMs != null && (
-            <span className="text-xs" style={{ color: "#64748b" }}>{result.executionTimeMs}ms</span>
+            <span className="text-xs" style={{ color: "var(--color-forge-muted)" }}>{result.executionTimeMs}ms</span>
           )}
         </div>
         <svg
           width="14" height="14" viewBox="0 0 24 24" fill="none"
-          stroke="#64748b" strokeWidth="2"
+          stroke="var(--color-forge-muted)" strokeWidth="2"
           style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}
         >
           <polyline points="6 9 12 15 18 9"/>
@@ -132,7 +136,7 @@ function TestCaseRow({ result, index }: { result: ExecResult; index: number }) {
       </button>
 
       {open && (
-        <div className="px-4 pb-4 space-y-2.5 text-xs" style={{ borderTop: "1px solid #1e3058" }}>
+        <div className="px-4 pb-4 space-y-2.5 text-xs" style={{ borderTop: "1px solid var(--color-forge-border)" }}>
           {[
             { label: "Input", value: result.inputSnapshot },
             { label: "Expected", value: result.expectedOutputSnapshot },
@@ -140,10 +144,10 @@ function TestCaseRow({ result, index }: { result: ExecResult; index: number }) {
             ...(result.stderr ? [{ label: "Error", value: result.stderr }] : []),
           ].map(({ label, value }) => value != null && (
             <div key={label}>
-              <div className="text-xs font-semibold mb-1 uppercase tracking-wider" style={{ color: "#64748b" }}>{label}</div>
+              <div className="text-xs font-semibold mb-1 uppercase tracking-wider" style={{ color: "var(--color-forge-muted)" }}>{label}</div>
               <pre
                 className="rounded p-2 text-xs leading-relaxed overflow-x-auto"
-                style={{ background: "#0a0f1e", color: "#e2e8f0", fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}
+                style={{ background: "var(--color-forge-bg)", color: "var(--color-forge-text)", fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}
               >
                 {value || "—"}
               </pre>
@@ -158,9 +162,11 @@ function TestCaseRow({ result, index }: { result: ExecResult; index: number }) {
 function ResultModal({
   submission,
   onClose,
+  nextProblemId,
 }: {
   submission: Submission;
   onClose: () => void;
+  nextProblemId?: string | null;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const results = submission.executionResults ?? [];
@@ -181,16 +187,16 @@ function ResultModal({
         {/* Modal header */}
         <div
           className="flex items-center justify-between px-5 py-4"
-          style={{ borderBottom: "1px solid #1e3058" }}
+          style={{ borderBottom: "1px solid var(--color-forge-border)" }}
         >
           <div className="flex items-center gap-3">
-            <span className="text-sm font-bold" style={{ color: "#e2e8f0" }}>Submission Result</span>
+            <span className="text-sm font-bold" style={{ color: "var(--color-forge-text)" }}>Submission Result</span>
             {submission.verdict && <VerdictBadge verdict={submission.verdict} />}
           </div>
           <button
             onClick={onClose}
             className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
-            style={{ color: "#64748b", background: "transparent" }}
+            style={{ color: "var(--color-forge-muted)", background: "transparent" }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -200,14 +206,14 @@ function ResultModal({
 
         {/* Progress bar */}
         {total > 0 && (
-          <div className="px-5 py-3" style={{ borderBottom: "1px solid #1e3058" }}>
-            <div className="flex justify-between text-xs mb-2" style={{ color: "#64748b" }}>
+          <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--color-forge-border)" }}>
+            <div className="flex justify-between text-xs mb-2" style={{ color: "var(--color-forge-muted)" }}>
               <span>Test Cases</span>
               <span style={{ color: passed === total ? "#10b981" : "#f43f5e" }}>
                 {passed}/{total} passed
               </span>
             </div>
-            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#1e3058" }}>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--color-forge-border)" }}>
               <div
                 className="h-full rounded-full transition-all duration-700"
                 style={{
@@ -221,9 +227,9 @@ function ResultModal({
 
         {/* Verdict + error info */}
         {(submission.verdict || submission.errorCode || submission.errorMessage) && (
-          <div className="px-5 py-3 space-y-2" style={{ borderBottom: "1px solid #1e3058", background: "rgba(34,211,238,0.04)" }}>
+          <div className="px-5 py-3 space-y-2" style={{ borderBottom: "1px solid var(--color-forge-border)", background: "rgba(34,211,238,0.04)" }}>
             {submission.verdict && (
-              <p className="text-xs" style={{ color: "#94a3b8" }}>
+              <p className="text-xs" style={{ color: "var(--color-forge-muted)" }}>
                 {VERDICT_HELP[submission.verdict] ?? "See details below for more info."}
               </p>
             )}
@@ -238,9 +244,24 @@ function ResultModal({
         {/* Test cases */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
           {results.length === 0 ? (
-            <p className="text-sm text-center py-8" style={{ color: "#64748b" }}>No test case results.</p>
+            <p className="text-sm text-center py-8" style={{ color: "var(--color-forge-muted)" }}>No test case results.</p>
           ) : (
             results.map((r, i) => <TestCaseRow key={r.testCaseId ?? i} result={r} index={i} />)
+          )}
+        </div>
+
+        {/* Footer Navigation */}
+        <div className="shrink-0 px-5 py-4 flex items-center justify-end gap-3" style={{ borderTop: "1px solid var(--color-forge-border)", background: "rgba(0,0,0,0.2)" }}>
+          <Link href="/submissions" className="text-sm font-semibold transition-colors hover:text-[#22d3ee]" style={{ color: "var(--color-forge-muted)" }}>
+            View Submissions
+          </Link>
+          {nextProblemId && (
+            <Link href={`/problems/${nextProblemId}`} className="forge-btn-primary flex items-center gap-2 text-sm" style={{ padding: "0.5rem 1.25rem" }}>
+              Next Problem
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+            </Link>
           )}
         </div>
       </div>
@@ -248,7 +269,17 @@ function ResultModal({
   );
 }
 
-export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: string; sampleInput?: string }) {
+export function ProblemSolver({
+  problemId,
+  language: initialLanguage = "JAVASCRIPT",
+  sampleInput = "",
+  nextProblemId = null,
+}: {
+  problemId: string;
+  language?: string;
+  sampleInput?: string;
+  nextProblemId?: string | null;
+}) {
   const defaultLang = LANGUAGES[0]!;
   const executionVersion = useRef(0);
   const submissionLock = useRef(false);
@@ -285,8 +316,9 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     return () => { cancelled = true; };
   }, []);
 
-  const [language, setLanguage] = useState(defaultLang.value);
-  const [code, setCode] = useState(defaultLang.starter);
+  const initLang = LANGUAGES.find((l) => l.value === initialLanguage) ?? defaultLang;
+  const [language, setLanguage] = useState(initLang.value);
+  const [code, setCode] = useState(initLang.starter);
   const [loading, setLoading] = useState(false);
   const [polling, setPolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -581,7 +613,7 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
           }
           // Transient error: retry
         } else {
-          const data = await res.json() as { status?: string; stdout?: string; stderr?: string; executionTimeMs?: number; exitCode?: number; outputTruncated?: boolean; error?: string };
+          const data = await res.json() as { status?: string; stdout?: string; stderr?: string; executionTimeMs?: number; exitCode?: number; outputTruncated?: boolean; error?: string; errorType?: "COMPILE_ERROR" | "RUNTIME_ERROR" | "TIMEOUT" | "INFRA_ERROR" | "NONE" | null };
           if (data.status) setRunStatus(data.status);
           if (data.status === 'COMPLETED' || data.status === 'FAILED') {
             setRunResult(data as RunResult);
@@ -610,20 +642,20 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
   return (
     <>
       {showModal && submission && (
-        <ResultModal submission={submission} onClose={() => setShowModal(false)} />
+        <ResultModal submission={submission} onClose={() => setShowModal(false)} nextProblemId={nextProblemId} />
       )}
 
       <div className="flex flex-col h-full">
         {/* Toolbar: Language Selector + Reset Code */}
         <div
           className="flex items-center justify-between px-4 py-2.5 shrink-0"
-          style={{ borderBottom: "1px solid #1e3058", background: "rgba(0,0,0,0.3)" }}
+          style={{ borderBottom: "1px solid var(--color-forge-border)", background: "rgba(0,0,0,0.3)" }}
         >
           <div className="flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="2">
               <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
             </svg>
-            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#94a3b8" }}>Editor</span>
+            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-forge-muted)" }}>Editor</span>
           </div>
           <div className="flex items-center gap-2">
             {/* Reset to boilerplate */}
@@ -645,9 +677,9 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
                 onChange={(e) => handleLangChange(e.target.value)}
                 className="forge-select text-xs font-medium pl-3 pr-8 py-1.5 rounded-md border transition-colors appearance-none cursor-pointer hover:border-cyan-500/50 focus:border-cyan-400"
                 style={{
-                  background: "#0d1526",
-                  border: "1px solid #1e3058",
-                  color: "#e2e8f0",
+                  background: "var(--color-forge-surface)",
+                  border: "1px solid var(--color-forge-border)",
+                  color: "var(--color-forge-text)",
                   outline: "none",
                 }}
                 disabled={isBusy}
@@ -686,20 +718,20 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
               </Panel>
 
               {/* Resize handle */}
-              <Separator className="h-1.5 bg-[#0d1526] hover:bg-[#1e3058] active:bg-[#22d3ee]/30 transition-colors cursor-row-resize flex flex-row justify-center items-center group z-10 relative">
-                <div className="w-6 h-0.5 rounded-full bg-[#334155] group-hover:bg-[#94a3b8] transition-colors" />
+              <Separator className="h-1.5 bg-[var(--color-forge-surface)] hover:bg-[var(--color-forge-border)] active:bg-[#22d3ee]/30 transition-colors cursor-row-resize flex flex-row justify-center items-center group z-10 relative">
+                <div className="w-6 h-0.5 rounded-full bg-[var(--color-forge-muted)] group-hover:bg-[var(--color-forge-muted)] transition-colors" />
               </Separator>
 
               {/* Bottom Panel: Terminal (Testcases + Output tabs) */}
               <Panel defaultSize={35} minSize={10} className="flex flex-col bg-[#0f172a] overflow-hidden">
                 {/* Terminal tab bar */}
-                <div className="flex shrink-0" style={{ borderBottom: "1px solid #1e3058", background: "rgba(0,0,0,0.2)" }}>
+                <div className="flex shrink-0" style={{ borderBottom: "1px solid var(--color-forge-border)", background: "rgba(0,0,0,0.2)" }}>
                   <button
                     type="button"
                     onClick={() => setTerminalTab('testcases')}
                     className="px-4 py-2 text-xs font-semibold border-b-2 transition-colors"
                     style={{
-                      color: terminalTab === 'testcases' ? '#22d3ee' : '#64748b',
+                      color: terminalTab === 'testcases' ? '#22d3ee' : 'var(--color-forge-muted)',
                       borderBottomColor: terminalTab === 'testcases' ? '#22d3ee' : 'transparent',
                     }}
                   >
@@ -710,7 +742,7 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
                     onClick={() => setTerminalTab('output')}
                     className="px-4 py-2 text-xs font-semibold border-b-2 transition-colors"
                     style={{
-                      color: terminalTab === 'output' ? '#22d3ee' : '#64748b',
+                      color: terminalTab === 'output' ? '#22d3ee' : 'var(--color-forge-muted)',
                       borderBottomColor: terminalTab === 'output' ? '#22d3ee' : 'transparent',
                     }}
                   >
@@ -721,7 +753,7 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
                       <button
                         onClick={() => { setRunResult(null); setRunStatus(null); setTerminalTab('testcases'); }}
                         className="text-xs px-2 py-1 transition-colors hover:text-[#f8fafc]"
-                        style={{ color: "#64748b" }}
+                        style={{ color: "var(--color-forge-muted)" }}
                         title="Clear output"
                       >
                         ✕
@@ -740,14 +772,14 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
                       placeholder="Enter stdin for your code…"
                       className="w-full h-full p-3 rounded-lg font-mono text-sm resize-none focus:outline-none focus:border-[#22d3ee]"
                       style={{
-                        background: "#1e293b",
-                        border: "1px solid #334155",
-                        color: "#e2e8f0",
+                        background: "var(--color-forge-bg)",
+                        border: "1px solid var(--color-forge-muted)",
+                        color: "var(--color-forge-text)",
                         minHeight: "80px",
                       }}
                     />
                   ) : (
-                    // Output tab — shows spinner while running, then output
+                    // Output tab
                     !runResult ? (
                       (runStatus || runLoading) ? (
                         <div className="h-full w-full flex flex-col items-center justify-center opacity-80">
@@ -756,40 +788,45 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
                           </svg>
                         </div>
                       ) : (
-                        <div className="text-xs text-slate-500 italic h-full flex items-center justify-center">
+                        <div className="text-xs text-slate-500 italic h-full flex flex-col items-center justify-center">
+                          <svg className="w-10 h-10 mb-2 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
+                          </svg>
                           Run your code to see output here.
                         </div>
                       )
                     ) : (
-                      <div className="space-y-3">
-                        {runResult && (
-                          <>
-                            <div>
-                              <div className="text-xs font-semibold mb-2" style={{ color: "#94a3b8" }}>Stdout</div>
-                              <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "#1e293b", color: "#cbd5e1" }}>
-                                {runResult.stdout || "(empty)"}
-                              </pre>
-                            </div>
-                            {runResult.stderr && (
-                              <div>
-                                <div className="text-xs font-semibold mb-2" style={{ color: "#f43f5e" }}>Stderr</div>
-                                <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "rgba(244,63,94,0.1)", color: "#f43f5e" }}>
-                                  {runResult.stderr}
-                                </pre>
-                              </div>
-                            )}
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex items-center gap-4 mb-2">
+                            <div className="text-xs font-semibold" style={{ color: "var(--color-forge-muted)" }}>Stdout</div>
                             {runResult.executionTimeMs != null && (
-                              <div className="text-xs" style={{ color: "#64748b" }}>
-                                Execution Time: <span style={{ color: "#cbd5e1" }}>{runResult.executionTimeMs}ms</span>
+                              <div className="text-xs font-mono" style={{ color: "var(--color-forge-muted)" }}>
+                                Time: <strong style={{ color: "var(--color-forge-muted)" }}>{runResult.executionTimeMs}ms</strong>
                               </div>
                             )}
-                            {runResult.error && (
-                              <div className="text-xs" style={{ color: "#f43f5e" }}>{runResult.error}</div>
-                            )}
-                            {runResult.outputTruncated && (
-                              <div className="text-xs" style={{ color: "#f59e0b" }}>Output truncated due to size limits.</div>
-                            )}
-                          </>
+                          </div>
+                          <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "var(--color-forge-bg)", color: "#cbd5e1", minHeight: "2.5rem" }}>
+                            {runResult.stdout || "(empty)"}
+                          </pre>
+                        </div>
+                        {runResult.stderr && (
+                          <div>
+                            <div className="text-xs font-semibold mb-2" style={{ color: "#f43f5e" }}>Stderr</div>
+                            <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "rgba(244,63,94,0.1)", color: "#f43f5e", minHeight: "2.5rem" }}>
+                              {runResult.stderr}
+                            </pre>
+                          </div>
+                        )}
+                        {runResult.error && !runResult.errorType && (
+                          <div className="text-xs p-3 rounded-lg" style={{ background: "rgba(244,63,94,0.1)", color: "#f43f5e" }}>
+                            {runResult.error}
+                          </div>
+                        )}
+                        {runResult.outputTruncated && (
+                          <div className="text-xs p-3 rounded-lg font-medium" style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b" }}>
+                            ⚠ Output truncated due to size limits.
+                          </div>
                         )}
                       </div>
                     )
@@ -801,7 +838,7 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
           ) : (
           <div className="flex flex-col flex-1 min-h-0 bg-[#0a1120]">
             {/* Mobile Tab Bar */}
-            <div className="flex shrink-0 bg-[#0d1526] border-b border-[#1e3058]">
+            <div className="flex shrink-0 bg-[var(--color-forge-surface)] border-b border-[var(--color-forge-border)]">
               <button
                 onClick={() => setTerminalTab('testcases')}
                 className={`flex-1 py-3 text-xs font-semibold ${terminalTab === 'testcases' ? 'text-[#22d3ee] border-b-2 border-[#22d3ee]' : 'text-slate-400'}`}
@@ -817,14 +854,13 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
             </div>
 
             {/* Mobile Content */}
-            <div className="flex-1 min-h-0 relative">
+            <div className="flex-1 min-h-0 relative flex overflow-hidden">
               {/* Testcases Tab (Code Editor + Stdin) */}
               <div
-                className={`absolute inset-0 flex-col overflow-y-auto transition-opacity ${
-                  terminalTab === 'testcases' ? 'flex z-10 opacity-100 pointer-events-auto' : 'flex z-0 opacity-0 pointer-events-none'
-                }`}
+                className="w-full h-full shrink-0 flex flex-col overflow-y-auto transition-transform duration-300"
+                style={{ transform: terminalTab === 'testcases' ? 'translateX(0)' : 'translateX(-100%)' }}
               >
-                <div className="h-[50vh] shrink-0 border-b border-[#1e3058]">
+                <div className="h-[50vh] shrink-0 border-b border-[var(--color-forge-border)]">
                   <CodeEditor
                     value={code}
                     onChange={setCode}
@@ -841,53 +877,66 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
                     onChange={(e) => setCustomInput(e.target.value)}
                     placeholder="Enter stdin for your code…"
                     className="w-full min-h-[120px] p-3 rounded-lg font-mono text-sm resize-y focus:outline-none focus:border-[#22d3ee]"
-                    style={{ background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0" }}
+                    style={{ background: "var(--color-forge-bg)", border: "1px solid var(--color-forge-muted)", color: "var(--color-forge-text)" }}
                   />
                 </div>
               </div>
 
               {/* Output Tab */}
               <div
-                className={`absolute inset-0 flex-col overflow-y-auto bg-[#0f172a] p-4 transition-opacity ${
-                  terminalTab === 'output' ? 'flex z-10 opacity-100 pointer-events-auto' : 'flex z-0 opacity-0 pointer-events-none'
-                }`}
+                className="w-full h-full shrink-0 flex flex-col overflow-y-auto bg-[#0f172a] p-4 transition-transform duration-300"
+                style={{ transform: terminalTab === 'testcases' ? 'translateX(0)' : 'translateX(-100%)' }}
               >
                 {!runResult ? (
                   (runStatus || runLoading) ? (
-                    <div className="h-full flex flex-col items-center justify-center opacity-80">
-                      <svg className="animate-spin-forge w-8 h-8 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                    <div className="h-full w-full flex flex-col items-center justify-center opacity-80">
+                      <svg className="animate-spin-forge w-8 h-8 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                      </svg>
                     </div>
                   ) : (
-                    <div className="text-xs text-slate-500 italic h-full flex items-center justify-center">
+                    <div className="text-xs text-slate-500 italic h-full flex flex-col items-center justify-center">
+                      <svg className="w-10 h-10 mb-2 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
+                      </svg>
                       Run your code to see output here.
                     </div>
                   )
                 ) : (
                   <div className="space-y-4">
                     <div>
-                      <div className="text-xs font-semibold mb-2" style={{ color: "#94a3b8" }}>Stdout</div>
-                      <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "#1e293b", color: "#cbd5e1" }}>
+                      <div className="flex items-center gap-4 mb-2">
+                        <div className="text-xs font-semibold" style={{ color: "var(--color-forge-muted)" }}>Stdout</div>
+                        {runResult.executionTimeMs != null && (
+                          <div className="text-xs font-mono" style={{ color: "var(--color-forge-muted)" }}>
+                            Time: <strong style={{ color: "var(--color-forge-muted)" }}>{runResult.executionTimeMs}ms</strong>
+                          </div>
+                        )}
+                      </div>
+                      <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "var(--color-forge-bg)", color: "#cbd5e1", minHeight: "2.5rem" }}>
                         {runResult.stdout || "(empty)"}
                       </pre>
                     </div>
+
                     {runResult.stderr && (
                       <div>
                         <div className="text-xs font-semibold mb-2" style={{ color: "#f43f5e" }}>Stderr</div>
-                        <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "rgba(244,63,94,0.1)", color: "#f43f5e" }}>
+                        <pre className="p-3 rounded-lg text-xs overflow-auto font-mono" style={{ background: "rgba(244,63,94,0.1)", color: "#f43f5e", minHeight: "2.5rem" }}>
                           {runResult.stderr}
                         </pre>
                       </div>
                     )}
-                    {runResult.executionTimeMs != null && (
-                      <div className="text-xs" style={{ color: "#64748b" }}>
-                        Execution Time: <span style={{ color: "#cbd5e1" }}>{runResult.executionTimeMs}ms</span>
+
+                    {runResult.error && !runResult.errorType && (
+                      <div className="text-xs p-3 rounded-lg" style={{ background: "rgba(244,63,94,0.1)", color: "#f43f5e" }}>
+                        {runResult.error}
                       </div>
                     )}
-                    {runResult.error && (
-                      <div className="text-xs" style={{ color: "#f43f5e" }}>{runResult.error}</div>
-                    )}
+
                     {runResult.outputTruncated && (
-                      <div className="text-xs" style={{ color: "#f59e0b" }}>Output truncated due to size limits.</div>
+                      <div className="text-xs p-3 rounded-lg font-medium" style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b" }}>
+                        ⚠ Output truncated due to size limits.
+                      </div>
                     )}
                   </div>
                 )}
@@ -913,7 +962,7 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
         {/* Footer: Status Pills + Action Buttons */}
         <div
           className="shrink-0 px-4 py-3 flex items-center justify-between gap-2"
-          style={{ borderTop: "1px solid #1e3058", background: "rgba(0,0,0,0.3)" }}
+          style={{ borderTop: "1px solid var(--color-forge-border)", background: "rgba(0,0,0,0.3)" }}
         >
           <div className="flex items-center gap-2">
             {submissionStatus && <StatusPill label="Submission" status={submissionStatus} />}

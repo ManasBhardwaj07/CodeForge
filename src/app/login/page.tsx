@@ -66,7 +66,7 @@ function LoginInner() {
       >
         {/* Header */}
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-extrabold mb-1.5" style={{ color: "#e2e8f0" }}>
+          <h1 className="text-2xl font-extrabold tracking-tight mb-1.5" style={{ color: "#e2e8f0" }}>
             Welcome back
           </h1>
           <p className="text-sm" style={{ color: "#64748b" }}>

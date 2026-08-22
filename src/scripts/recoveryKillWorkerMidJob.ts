@@ -130,6 +130,7 @@ async function main() {
     {
       type: "run",
       jobId: runId,
+      userId: "test-user-id",
       language: "JAVASCRIPT",
       // ~8s busy loop. First attempt will be killed mid-run; retry should finish under 15s per-test timeout.
       code: `const end = Date.now() + 8000; while (Date.now() < end) {}\nconsole.log('done');`,

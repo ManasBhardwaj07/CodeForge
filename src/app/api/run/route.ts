@@ -1,5 +1,6 @@
 import { AuthorizationError, requireAuth } from '@/lib/auth';
 import { getSubmissionQueue } from '@/lib/queue';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { resolveRequestId } from '@/lib/request-id';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -9,8 +10,9 @@ const INPUT_MAX_LENGTH = 100000;
 
 export async function POST(req: NextRequest) {
   try {
+    let user;
     try {
-      await requireAuth(req);
+      user = await requireAuth(req);
     } catch (error) {
       if (error instanceof AuthorizationError) {
         return NextResponse.json({ error: error.message }, { status: error.statusCode });
@@ -49,6 +51,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const isAllowed = await checkRateLimit(user.userId, 'run');
+    if (!isAllowed) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please wait before running code again.' },
+        { status: 429 }
+      );
+    }
+
     // Enqueue run job (no DB persistence)
     // Result stored in job.returnValue (ephemeral, expires with job)
     try {
@@ -60,6 +70,7 @@ export async function POST(req: NextRequest) {
         {
           type: 'run',
           jobId,
+          userId: user.userId,
           requestId,
           language,
           code,
