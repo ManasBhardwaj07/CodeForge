@@ -252,6 +252,38 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
   const defaultLang = LANGUAGES[0]!;
   const executionVersion = useRef(0);
   const submissionLock = useRef(false);
+  const runLock = useRef(false);
+
+  // ── Auth state machine ─────────────────────────────────────────────────────
+  // UNKNOWN → GUEST | AUTHENTICATED
+  // All localStorage draft access is blocked until this resolves.
+  type AuthState = 'UNKNOWN' | 'GUEST' | 'AUTHENTICATED';
+  const [authState, setAuthState] = useState<AuthState>('UNKNOWN');
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (!cancelled) {
+          if (res.ok) {
+            const data = await res.json() as { authenticated?: boolean; user?: { id: string } };
+            if (data.authenticated && data.user) {
+              setUserId(data.user.id);
+              setAuthState('AUTHENTICATED');
+              return;
+            }
+          }
+          setAuthState('GUEST');
+        }
+      } catch {
+        if (!cancelled) setAuthState('GUEST');
+      }
+    }
+    checkAuth();
+    return () => { cancelled = true; };
+  }, []);
 
   const [language, setLanguage] = useState(defaultLang.value);
   const [code, setCode] = useState(defaultLang.starter);
@@ -321,9 +353,9 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     setTerminalTab('testcases');
     const entry = LANGUAGES.find((l) => l.value === lang);
     if (entry) {
-      const stored = typeof window === "undefined"
-        ? null
-        : localStorage.getItem(`codeforge:draft:${problemId}:${lang}`);
+      if (authState === 'UNKNOWN') return;
+      const identity = authState === 'AUTHENTICATED' ? userId! : 'guest';
+      const stored = localStorage.getItem(`codeforge:draft:${identity}:${problemId}:${lang}`);
       setCode(stored ?? entry.starter);
     }
   };
@@ -333,69 +365,124 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
     const entry = LANGUAGES.find((l) => l.value === language);
     const starter = entry ? entry.starter : "";
     setCode(starter);
-    localStorage.removeItem(`codeforge:draft:${problemId}:${language}`);
+    if (authState !== 'UNKNOWN') {
+      const identity = authState === 'AUTHENTICATED' ? userId! : 'guest';
+      localStorage.removeItem(`codeforge:draft:${identity}:${problemId}:${language}`);
+    }
   };
 
+  // ── Auth-aware draft & input persistence ──────────────────────────────────
+  // All localStorage reads and writes are blocked until authState resolves.
+  // Keys use identity-scoped namespaces to prevent cross-user data leakage.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = localStorage.getItem(`codeforge:draft:${problemId}:${language}`);
-    if (stored) {
+    if (authState === 'UNKNOWN') return; // Block until identity is known
+    const identity = authState === 'AUTHENTICATED' ? userId! : 'guest';
+
+    // ── Guest → User migration (runs once when AUTHENTICATED resolves) ──────
+    if (authState === 'AUTHENTICATED') {
+      for (const lang of LANGUAGES.map((l) => l.value)) {
+        const guestKey = `codeforge:draft:guest:${problemId}:${lang}`;
+        const userKey  = `codeforge:draft:${identity}:${problemId}:${lang}`;
+        const guestDraft = localStorage.getItem(guestKey);
+        if (guestDraft !== null) {
+          // User's existing draft wins; only copy if user has no draft
+          if (localStorage.getItem(userKey) === null) {
+            localStorage.setItem(userKey, guestDraft);
+          }
+          localStorage.removeItem(guestKey); // Always clean up guest key
+        }
+      }
+      // Migrate custom input too
+      const guestInputKey = `codeforge:input:guest:${problemId}`;
+      const userInputKey  = `codeforge:input:${identity}:${problemId}`;
+      const guestInput = localStorage.getItem(guestInputKey);
+      if (guestInput !== null) {
+        if (localStorage.getItem(userInputKey) === null) {
+          localStorage.setItem(userInputKey, guestInput);
+        }
+        localStorage.removeItem(guestInputKey);
+      }
+    }
+
+    // ── Load draft for current problem/language ───────────────────────────
+    const draftKey = `codeforge:draft:${identity}:${problemId}:${language}`;
+    const stored = localStorage.getItem(draftKey);
+    if (stored !== null) {
       setCode((prev) => (stored !== prev ? stored : prev));
     }
-    const storedInput = localStorage.getItem(`codeforge:input:${problemId}`);
-    if (storedInput != null) {
+
+    // ── Load custom input ─────────────────────────────────────────────────
+    const inputKey = `codeforge:input:${identity}:${problemId}`;
+    const storedInput = localStorage.getItem(inputKey);
+    if (storedInput !== null) {
       setCustomInput((prev) => (storedInput !== prev ? storedInput : prev));
     } else if (sampleInput) {
       setCustomInput((prev) => (sampleInput !== prev ? sampleInput : prev));
     }
-  }, [problemId, language, sampleInput, setCustomInput]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authState, userId, problemId, language, sampleInput]);
+  // setCode and setCustomInput are stable; excluded intentionally.
+  // Migration only needs authState/userId to change, not every code keystroke.
 
+  // ── Autosave code ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(`codeforge:draft:${problemId}:${language}`, code);
-  }, [problemId, language, code]);
+    if (authState === 'UNKNOWN') return;
+    const identity = authState === 'AUTHENTICATED' ? userId! : 'guest';
+    localStorage.setItem(`codeforge:draft:${identity}:${problemId}:${language}`, code);
+  }, [authState, userId, problemId, language, code]);
 
+  // ── Autosave custom input ─────────────────────────────────────────────────
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(`codeforge:input:${problemId}`, customInput);
-  }, [problemId, customInput]);
+    if (authState === 'UNKNOWN') return;
+    const identity = authState === 'AUTHENTICATED' ? userId! : 'guest';
+    localStorage.setItem(`codeforge:input:${identity}:${problemId}`, customInput);
+  }, [authState, userId, problemId, customInput]);
 
+  // ── Submission polling (recursive setTimeout — no overlap) ────────────────
   useEffect(() => {
     if (!submissionId) return;
     const version = executionVersion.current;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     setPolling(true);
-    const interval = setInterval(async () => {
-      if (version !== executionVersion.current) {
-        clearInterval(interval);
-        return;
-      }
+
+    async function pollSubmission() {
+      if (cancelled || version !== executionVersion.current) return;
       try {
         const res = await fetch(`/api/submissions/${submissionId}`);
-        if (version !== executionVersion.current) {
-          clearInterval(interval);
-          return;
-        }
+        if (cancelled || version !== executionVersion.current) return;
         if (!res.ok) {
-          if (res.status >= 500 || res.status === 404) {
-            clearInterval(interval);
+          if (res.status === 401) {
             setPolling(false);
+            window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+            return;
           }
-          return;
-        }
-        const data = await res.json() as { submission?: Submission } | Submission;
-        const sub: Submission = (data as { submission?: Submission }).submission ?? (data as Submission);
-        setSubmission(sub);
-        setSubmissionStatus(sub.status);
-        if (TERMINAL.has(sub.status)) {
-          clearInterval(interval);
-          setPolling(false);
-          setShowModal(true);
+          if (res.status === 404 || res.status >= 500) {
+            setPolling(false);
+            return;
+          }
+          // Transient error (429, 503 etc): schedule retry
+        } else {
+          const data = await res.json() as { submission?: Submission } | Submission;
+          const sub: Submission = (data as { submission?: Submission }).submission ?? (data as Submission);
+          setSubmission(sub);
+          setSubmissionStatus(sub.status);
+          if (TERMINAL.has(sub.status)) {
+            setPolling(false);
+            setShowModal(true);
+            return; // Terminal state — stop polling
+          }
         }
       } catch {
-        // ignore poll errors
+        // Network failure — retry after delay
       }
-    }, POLL_MS);
-    return () => clearInterval(interval);
+      if (!cancelled && version === executionVersion.current) {
+        timeoutId = setTimeout(pollSubmission, POLL_MS);
+      }
+    }
+
+    pollSubmission();
+    return () => { cancelled = true; clearTimeout(timeoutId); };
   }, [submissionId]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -434,8 +521,8 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
   }
 
   async function handleRun() {
-    if (submissionLock.current) return;
-    submissionLock.current = true;
+    if (runLock.current) return; // runLock is independent of submissionLock
+    runLock.current = true;
     setRunLoading(true);
     setRunResult(null);
     setRunStatus("QUEUED");
@@ -450,11 +537,11 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
         // Uses the live customInput textarea (pre-filled with sampleInput)
         body: JSON.stringify({ language, code, customInput }),
       });
-      const data = await res.json() as { jobId?: string; error?: string };
       if (res.status === 401 || res.status === 403) {
         window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
         return;
       }
+      const data = await res.json() as { jobId?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Run failed");
       if (!data.jobId) throw new Error("Job ID missing");
 
@@ -464,51 +551,56 @@ export function ProblemSolver({ problemId, sampleInput = "" }: { problemId: stri
       setError(err instanceof Error ? err.message : "Run failed");
       setRunLoading(false);
     } finally {
-      submissionLock.current = false;
+      runLock.current = false; // Always release in finally
     }
   }
 
-  // Poll run result (quick run)
+  // ── Run polling (recursive setTimeout — no overlap) ───────────────────────
   useEffect(() => {
     if (!runJobId) return;
     const version = executionVersion.current;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     setRunPolling(true);
     setRunLoading(false);
-    const interval = setInterval(async () => {
-      if (version !== executionVersion.current) {
-        clearInterval(interval);
-        return;
-      }
+
+    async function pollRun() {
+      if (cancelled || version !== executionVersion.current) return;
       try {
         const res = await fetch(`/api/run-status/${runJobId}`);
-        if (version !== executionVersion.current) {
-          clearInterval(interval);
-          return;
-        }
+        if (cancelled || version !== executionVersion.current) return;
         if (!res.ok) {
-          if (res.status >= 500 || res.status === 404) {
-            clearInterval(interval);
+          if (res.status === 401) {
             setRunPolling(false);
+            window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+            return;
           }
-          return;
-        }
-        const data = await res.json();
-        if (res.ok) {
-          if (data.status) {
-            setRunStatus(data.status);
+          if (res.status === 404 || res.status >= 500) {
+            setRunPolling(false);
+            return;
           }
+          // Transient error: retry
+        } else {
+          const data = await res.json() as { status?: string; stdout?: string; stderr?: string; executionTimeMs?: number; exitCode?: number; outputTruncated?: boolean; error?: string };
+          if (data.status) setRunStatus(data.status);
           if (data.status === 'COMPLETED' || data.status === 'FAILED') {
-            setRunResult(data);
+            setRunResult(data as RunResult);
             setRunPolling(false);
-            clearInterval(interval);
+            return; // Terminal state — stop polling
           }
         }
       } catch {
-        clearInterval(interval);
+        // Network failure — stop polling
         setRunPolling(false);
+        return;
       }
-    }, POLL_MS);
-    return () => clearInterval(interval);
+      if (!cancelled && version === executionVersion.current) {
+        timeoutId = setTimeout(pollRun, POLL_MS);
+      }
+    }
+
+    pollRun();
+    return () => { cancelled = true; clearTimeout(timeoutId); };
   }, [runJobId]);
 
 

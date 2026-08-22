@@ -97,7 +97,6 @@ export function Navbar({ user }: { user: { userId: string; email: string; userna
                   } catch (e) {
                     console.error("Logout failed", e);
                   }
-                  localStorage.removeItem("token");
                   window.location.href = "/login";
                 }}
               >

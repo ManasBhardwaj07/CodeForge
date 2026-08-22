@@ -8,6 +8,9 @@ export function middleware(request: NextRequest) {
   // We only check for presence here to avoid duplicating JWT verification logic in Edge.
   // The actual signature verification happens in the API routes / server actions via requireAuth().
   if (!token) {
+    if (request.nextUrl.pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", request.nextUrl.pathname);
@@ -18,6 +21,6 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Add any protected UI routes here
-  matcher: ["/submissions"],
+  // Add any protected UI or API routes here
+  matcher: ["/submissions", "/api/submit", "/api/run", "/api/my-submissions"],
 };

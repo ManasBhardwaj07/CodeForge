@@ -44,8 +44,8 @@ function LoginInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json() as { token?: string; error?: string };
-      if (!res.ok || !data.token) {
+      const data = await res.json() as { user?: unknown; error?: string };
+      if (!res.ok) {
         setError(data.error ?? "Login failed");
         return;
       }

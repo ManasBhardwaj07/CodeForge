@@ -39,8 +39,8 @@ function RegisterInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, username, password }),
       });
-      const data = await res.json() as { token?: string; error?: string };
-      if (!res.ok || !data.token) {
+      const data = await res.json() as { user?: unknown; error?: string };
+      if (!res.ok) {
         setError(data.error ?? "Registration failed");
         return;
       }
