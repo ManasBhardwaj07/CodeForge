@@ -33,6 +33,7 @@ CodeForge is a queue-backed asynchronous multi-language code execution platform 
 - Runtime and memory limit enforcement
 - Dead-letter queue (DLQ) recovery
 - Persistent submission history tracking
+- Seamless problem navigation and serial indexing
 - Operational metrics and worker heartbeats
 - Production-ready deployment configuration
 
@@ -42,15 +43,15 @@ CodeForge is a queue-backed asynchronous multi-language code execution platform 
 
 - **Frontend:** Next.js 16, React, TypeScript, Tailwind CSS
 - **Backend:** Next.js App Router API routes, Node.js (Worker Process)
-- **Queue & Persistence:** BullMQ, Redis, Prisma ORM, PostgreSQL
+- **Queue & Persistence:** BullMQ, Redis, Prisma ORM (v7+), PostgreSQL (Neon Serverless compatible)
 - **Infrastructure:** Docker, Docker Compose
-- **Deployment:** AWS EC2, Caddy Reverse Proxy, DuckDNS
+- **Deployment:** Azure VM, Caddy Reverse Proxy, DuckDNS
 
 ---
 
 ## Production Deployment
 
-CodeForge is deployed on AWS EC2 using Docker Compose orchestration with dedicated BullMQ workers, Redis queue infrastructure, PostgreSQL persistence, Docker sandbox execution, and Caddy reverse proxying for automatic TLS. 
+CodeForge is deployed on an Azure VM using Docker Compose orchestration with dedicated BullMQ workers, Redis queue infrastructure, Neon Serverless PostgreSQL persistence, Docker sandbox execution, and Caddy reverse proxying for automatic TLS.
 
 Frontend traffic communicates exclusively through the reverse proxy layer (`/api`) rather than directly exposing backend services publicly.
 
