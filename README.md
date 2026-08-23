@@ -18,8 +18,6 @@ Unlike typical synchronous code evaluators, CodeForge uses a queue-backed archit
 
 ![Code Editor](docs/screenshots/editor.png)
 
-*(Note: Add the new `submission.png` and `Screenshot 2026-05-22 124134.png` from your docs/screenshots folder here)*
-
 ---
 
 ## Features
