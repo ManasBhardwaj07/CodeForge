@@ -163,10 +163,12 @@ npm run worker
 
 ---
 
-## Operational Testing
+## Testing & Verification
 
-The project includes dedicated validation scripts to verify operational behavior under stress:
+The project includes deterministic unit tests and dedicated operational scripts to verify behavior:
 
+- **Deterministic Unit Tests:** Validates verdict precedence, count aggregation, and sandbox execution policy normalization.
+  `npm run test:unit`
 - **Abuse Validation:** Tests infinite loop timeout handling, stdout spam truncation, and memory pressure.
   `npm run ops:abuse-infinite-loop`
 - **Cleanup Validation:** Ensures no orphan execution containers or temp directories leak onto the host.

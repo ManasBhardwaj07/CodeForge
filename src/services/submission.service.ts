@@ -88,6 +88,7 @@ export async function listSubmissionsForUser(userId: string) {
   return prisma.submission.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
+    take: 50,
     select: {
       id: true,
       verdict: true,
