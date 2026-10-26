@@ -47,3 +47,5 @@ next-env.d.ts
 *.save
 *.bak
 execution.txt*
+# interview prep (local only)
+/interview-prep/
